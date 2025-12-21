@@ -1,0 +1,130 @@
+####################################
+# OS / System
+####################################
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+####################################
+# Editors / IDEs
+####################################
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+.idea/
+*.iml
+
+####################################
+# Logs
+####################################
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+####################################
+# Environment Variables
+####################################
+.env
+.env.*
+!.env.example
+
+####################################
+# Node / TypeScript
+####################################
+node_modules/
+bower_components/
+
+dist/
+build/
+out/
+
+.next/
+.vercel/
+
+coverage/
+*.tsbuildinfo
+
+####################################
+# Next.js / React
+####################################
+.next/
+out/
+.vercel/
+
+####################################
+# Tailwind / CSS
+####################################
+tailwind.config.js
+postcss.config.js
+*.css.map
+
+####################################
+# Rust / Cargo
+####################################
+target/
+**/target/
+
+Cargo.lock
+!.cargo/config.toml
+
+####################################
+# Solana / Anchor
+####################################
+.anchor/
+.anchor-cache/
+
+test-ledger/
+.localnet/
+
+**/.anchor/
+**/test-ledger/
+
+keypair.json
+*.keypair
+*.json
+
+!package.json
+!tsconfig.json
+
+####################################
+# Docker
+####################################
+.dockerignore
+docker-compose.override.yml
+
+####################################
+# Build Artifacts
+####################################
+*.exe
+*.out
+*.app
+*.dll
+*.so
+*.dylib
+
+####################################
+# Temporary / Misc
+####################################
+.tmp/
+.temp/
+.cache/
+.eslintcache
+
+####################################
+# Python (if any tools)
+####################################
+__pycache__/
+*.py[cod]
+venv/
+.env/
+
+####################################
+# WSL / Linux
+####################################
+*.swp
+*~
