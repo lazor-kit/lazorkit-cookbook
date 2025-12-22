@@ -6,7 +6,12 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { PublicKey, Connection } from '@solana/web3.js';
 import { buildInitializeSubscriptionIx } from '@/lib/program/subscription-service';
-import { PLANS, PlanId } from '@/lib/constants';
+import {
+    PLANS,
+    PlanId,
+    SUBSCRIPTION_CONSTANTS,
+    calculateExpiryTimestamp
+} from '@/lib/constants';
 
 function ConfirmContent() {
   const searchParams = useSearchParams();
@@ -39,39 +44,14 @@ function ConfirmContent() {
       const userWallet = new PublicKey(wallet.smartWallet);
       
       setLoadingMessage('Connecting to Solana...');
-      
-      const rpcEndpoints = [
-        'https://api.devnet.solana.com',
-        'https://rpc.ankr.com/solana_devnet',
-      ];
-      
-      let connection: Connection | null = null;
-      
-      for (const endpoint of rpcEndpoints) {
-        try {
-          console.log('Trying RPC:', endpoint);
-          const testConnection = new Connection(endpoint, {
-            commitment: 'confirmed',
-            confirmTransactionInitialTimeout: 60000,
-          });
-          
-          await testConnection.getLatestBlockhash();
-          connection = testConnection;
-          console.log('Connected to:', endpoint);
-          break;
-        } catch (err) {
-          console.error('RPC failed:', endpoint, err);
-          continue;
-        }
-      }
+
+      const connection = new Connection(SUBSCRIPTION_CONSTANTS.RPC_URL);
       
       if (!connection) {
         throw new Error('Could not connect to Solana network. Please check your internet connection and try again.');
       }
-      
-      const expiryTimestamp = expiryMonths === 0 
-        ? undefined 
-        : Math.floor(Date.now() / 1000) + (expiryMonths * 30 * 24 * 60 * 60);
+
+      const expiryTimestamp = calculateExpiryTimestamp(expiryMonths);
       
       console.log('Building subscription transaction...');
       setLoadingMessage('Preparing transaction...');
@@ -89,7 +69,7 @@ function ConfirmContent() {
       const signature = await signAndSendTransaction({
         instructions: instructions,
         transactionOptions: {
-          computeUnitLimit: 400_000,
+          computeUnitLimit: SUBSCRIPTION_CONSTANTS.COMPUTE_UNIT_LIMIT,
         }
       });
 

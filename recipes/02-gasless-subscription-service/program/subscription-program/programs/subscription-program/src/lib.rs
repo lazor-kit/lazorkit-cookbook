@@ -8,41 +8,24 @@ declare_id!("5MpaXq6rwiWfnpjR5THsa6TsLRMJ8jxgNYw3HH86yKwU");
 pub mod subscription_program {
     use super::*;
 
-    /// Initialize a new subscription
-    /// User signs this ONCE with their Lazorkit passkey
-    /// This also delegates the token account to the subscription PDA
+    /// Initialize a new subscription AND charge first payment immediately (PREPAID)
     pub fn initialize_subscription(
         ctx: Context<InitializeSubscription>,
         amount_per_period: u64,
         interval_seconds: i64,
         expires_at: Option<i64>,
     ) -> Result<()> {
-        let subscription = &mut ctx.accounts.subscription;
         let clock = Clock::get()?;
 
-        subscription.authority = ctx.accounts.authority.key();
-        subscription.recipient = ctx.accounts.recipient.key();
-        subscription.user_token_account = ctx.accounts.user_token_account.key();
-        subscription.recipient_token_account = ctx.accounts.recipient_token_account.key();
-        subscription.token_mint = ctx.accounts.token_mint.key();
-        subscription.amount_per_period = amount_per_period;
-        subscription.interval_seconds = interval_seconds;
-        subscription.last_charge_timestamp = 0;
-        subscription.created_at = clock.unix_timestamp;
-        subscription.expires_at = expires_at;
-        subscription.is_active = true;
-        subscription.total_charged = 0;
-        subscription.bump = ctx.bumps.subscription;
-
-        // Delegate the user's token account to the subscription PDA
-        // This allows the subscription to pull funds on schedule
+        // ========== STEP 1: DELEGATE TOKEN ACCOUNT ==========
+        // This MUST happen before we charge, so PDA can act as delegate
         let delegate_ix = token_instruction::approve(
             &ctx.accounts.token_program.key(),
             &ctx.accounts.user_token_account.key(),
             &ctx.accounts.subscription.key(),
             &ctx.accounts.authority.key(),
             &[],
-            u64::MAX, // Unlimited delegation (we enforce limits in our program)
+            u64::MAX,
         )?;
 
         anchor_lang::solana_program::program::invoke(
@@ -55,56 +38,13 @@ pub mod subscription_program {
             ],
         )?;
 
-        msg!("Subscription initialized!");
-        msg!("Amount per period: {} tokens", amount_per_period);
-        msg!("Interval: {} seconds", interval_seconds);
-        msg!("Token account delegated to subscription PDA");
+        // ========== STEP 2: CHARGE FIRST PAYMENT IMMEDIATELY ==========
+        // Get PDA info BEFORE borrowing subscription mutably
+        let authority_key = ctx.accounts.authority.key();
+        let recipient_key = ctx.accounts.recipient.key();
+        let subscription_key = ctx.accounts.subscription.key();
+        let bump = ctx.bumps.subscription;
 
-        Ok(())
-    }
-
-    /// Charge the subscription
-    /// Anyone can call this (merchant, cron job, etc.)
-    /// Program enforces that interval has passed
-    pub fn charge_subscription(ctx: Context<ChargeSubscription>) -> Result<()> {
-        let subscription = &mut ctx.accounts.subscription;
-        let clock = Clock::get()?;
-        let current_time = clock.unix_timestamp;
-
-        // Check if subscription is active
-        require!(subscription.is_active, ErrorCode::SubscriptionInactive);
-
-        // Check if expired
-        if let Some(expires_at) = subscription.expires_at {
-            require!(current_time < expires_at, ErrorCode::SubscriptionExpired);
-        }
-
-        // Check if enough time has passed since last charge
-        let time_since_last_charge = current_time - subscription.last_charge_timestamp;
-        require!(
-            time_since_last_charge >= subscription.interval_seconds,
-            ErrorCode::IntervalNotMet
-        );
-
-        // Validate token accounts are owned by Token Program
-        require_keys_eq!(
-            *ctx.accounts.user_token_account.owner,
-            spl_token::ID,
-            ErrorCode::InvalidTokenAccount
-        );
-        require_keys_eq!(
-            *ctx.accounts.recipient_token_account.owner,
-            spl_token::ID,
-            ErrorCode::InvalidTokenAccount
-        );
-
-        // Store values we need before borrowing issues
-        let amount = subscription.amount_per_period;
-        let authority_key = subscription.authority;
-        let recipient_key = subscription.recipient;
-        let bump = subscription.bump;
-
-        // Create PDA signer seeds
         let seeds = &[
             b"subscription",
             authority_key.as_ref(),
@@ -113,20 +53,16 @@ pub mod subscription_program {
         ];
         let signer_seeds = &[&seeds[..]];
 
-        // Get subscription PDA key
-        let subscription_key = ctx.accounts.subscription.key();
-
-        // Transfer tokens using the subscription PDA as authority (via delegation)
+        // Transfer first payment using PDA as delegate
         let transfer_ix = token_instruction::transfer(
             &ctx.accounts.token_program.key(),
             &ctx.accounts.user_token_account.key(),
             &ctx.accounts.recipient_token_account.key(),
-            &subscription_key, // PDA is the delegate
+            &subscription_key,
             &[],
-            amount,
+            amount_per_period,
         )?;
 
-        // Invoke with PDA signer
         invoke_signed(
             &transfer_ix,
             &[
@@ -138,7 +74,95 @@ pub mod subscription_program {
             signer_seeds,
         )?;
 
-        // Update subscription state (now safe to borrow mutably again)
+        // ========== STEP 3: INITIALIZE SUBSCRIPTION STATE ==========
+        // NOW we can mutably borrow subscription to set its state
+        let subscription = &mut ctx.accounts.subscription;
+        subscription.authority = authority_key;
+        subscription.recipient = recipient_key;
+        subscription.user_token_account = ctx.accounts.user_token_account.key();
+        subscription.recipient_token_account = ctx.accounts.recipient_token_account.key();
+        subscription.token_mint = ctx.accounts.token_mint.key();
+        subscription.amount_per_period = amount_per_period;
+        subscription.interval_seconds = interval_seconds;
+        subscription.last_charge_timestamp = clock.unix_timestamp; // ← Set to NOW for prepaid
+        subscription.created_at = clock.unix_timestamp;
+        subscription.expires_at = expires_at;
+        subscription.is_active = true;
+        subscription.total_charged = amount_per_period; // ← Already charged first payment
+        subscription.bump = bump;
+
+        msg!("Subscription initialized with PREPAID model!");
+        msg!("First payment charged: {} tokens", amount_per_period);
+        msg!("Next charge in {} seconds (30 days)", interval_seconds);
+        msg!("Token account delegated to subscription PDA");
+
+        Ok(())
+    }
+
+    /// Charge the subscription (for recurring payments after first payment)
+    pub fn charge_subscription(ctx: Context<ChargeSubscription>) -> Result<()> {
+        let subscription = &mut ctx.accounts.subscription;
+        let clock = Clock::get()?;
+        let current_time = clock.unix_timestamp;
+
+        require!(subscription.is_active, ErrorCode::SubscriptionInactive);
+
+        if let Some(expires_at) = subscription.expires_at {
+            require!(current_time < expires_at, ErrorCode::SubscriptionExpired);
+        }
+
+        let time_since_last_charge = current_time - subscription.last_charge_timestamp;
+        require!(
+            time_since_last_charge >= subscription.interval_seconds,
+            ErrorCode::IntervalNotMet
+        );
+
+        require_keys_eq!(
+            *ctx.accounts.user_token_account.owner,
+            spl_token::ID,
+            ErrorCode::InvalidTokenAccount
+        );
+        require_keys_eq!(
+            *ctx.accounts.recipient_token_account.owner,
+            spl_token::ID,
+            ErrorCode::InvalidTokenAccount
+        );
+
+        let amount = subscription.amount_per_period;
+        let authority_key = subscription.authority;
+        let recipient_key = subscription.recipient;
+        let bump = subscription.bump;
+
+        let seeds = &[
+            b"subscription",
+            authority_key.as_ref(),
+            recipient_key.as_ref(),
+            &[bump],
+        ];
+        let signer_seeds = &[&seeds[..]];
+
+        let subscription_key = ctx.accounts.subscription.key();
+
+        let transfer_ix = token_instruction::transfer(
+            &ctx.accounts.token_program.key(),
+            &ctx.accounts.user_token_account.key(),
+            &ctx.accounts.recipient_token_account.key(),
+            &subscription_key,
+            &[],
+            amount,
+        )?;
+
+        invoke_signed(
+            &transfer_ix,
+            &[
+                ctx.accounts.user_token_account.to_account_info(),
+                ctx.accounts.recipient_token_account.to_account_info(),
+                ctx.accounts.subscription.to_account_info(),
+                ctx.accounts.token_program.to_account_info(),
+            ],
+            signer_seeds,
+        )?;
+
         let subscription = &mut ctx.accounts.subscription;
         subscription.last_charge_timestamp = current_time;
         subscription.total_charged += amount;
@@ -150,15 +174,12 @@ pub mod subscription_program {
         Ok(())
     }
 
-    /// Cancel subscription
-    /// Only the authority (user) can cancel
-    /// This also revokes the token delegation
+    /// Cancel subscription - closes account and refunds rent
     pub fn cancel_subscription(ctx: Context<CancelSubscription>) -> Result<()> {
-        let subscription = &mut ctx.accounts.subscription;
+        let subscription = &ctx.accounts.subscription;
 
         require!(subscription.is_active, ErrorCode::SubscriptionAlreadyCancelled);
 
-        // Revoke delegation
         let revoke_ix = token_instruction::revoke(
             &ctx.accounts.token_program.key(),
             &ctx.accounts.user_token_account.key(),
@@ -175,16 +196,26 @@ pub mod subscription_program {
             ],
         )?;
 
-        subscription.is_active = false;
-
         msg!("Subscription cancelled by user");
         msg!("Token delegation revoked");
+        msg!("Account closed - rent refunded to user");
 
         Ok(())
     }
 
-    /// Update subscription (modify amount or interval)
-    /// Only the authority (user) can update
+    /// Cleanup old cancelled subscription
+    pub fn cleanup_cancelled_subscription(ctx: Context<CleanupCancelledSubscription>) -> Result<()> {
+        let subscription = &ctx.accounts.subscription;
+
+        require!(!subscription.is_active, ErrorCode::SubscriptionStillActive);
+
+        msg!("Cleaning up old cancelled subscription");
+        msg!("Account closed - rent refunded to user");
+
+        Ok(())
+    }
+
+    /// Update subscription
     pub fn update_subscription(
         ctx: Context<UpdateSubscription>,
         new_amount: Option<u64>,
@@ -214,7 +245,6 @@ pub mod subscription_program {
     }
 }
 
-// Account contexts
 #[derive(Accounts)]
 pub struct InitializeSubscription<'info> {
     #[account(
@@ -230,7 +260,6 @@ pub struct InitializeSubscription<'info> {
     )]
     pub subscription: Account<'info, Subscription>,
 
-    /// The user's smart wallet (Lazorkit wallet)
     pub authority: Signer<'info>,
 
     /// CHECK: Merchant/recipient address
@@ -241,6 +270,7 @@ pub struct InitializeSubscription<'info> {
     pub user_token_account: UncheckedAccount<'info>,
 
     /// CHECK: Recipient's token account
+    #[account(mut)]
     pub recipient_token_account: UncheckedAccount<'info>,
 
     /// CHECK: Token mint (USDC)
@@ -268,14 +298,14 @@ pub struct ChargeSubscription<'info> {
     )]
     pub subscription: Account<'info, Subscription>,
 
-    /// CHECK: User's token account - validated against subscription
+    /// CHECK: User's token account
     #[account(
         mut,
         constraint = user_token_account.key() == subscription.user_token_account
     )]
     pub user_token_account: UncheckedAccount<'info>,
 
-    /// CHECK: Recipient's token account - validated against subscription
+    /// CHECK: Recipient's token account
     #[account(
         mut,
         constraint = recipient_token_account.key() == subscription.recipient_token_account
@@ -296,13 +326,15 @@ pub struct CancelSubscription<'info> {
             subscription.recipient.as_ref(),
         ],
         bump = subscription.bump,
-        has_one = authority
+        has_one = authority,
+        close = authority
     )]
     pub subscription: Account<'info, Subscription>,
 
+    #[account(mut)]
     pub authority: Signer<'info>,
 
-    /// CHECK: User's token account - for revoking delegation
+    /// CHECK: User's token account
     #[account(
         mut,
         constraint = user_token_account.key() == subscription.user_token_account
@@ -314,13 +346,32 @@ pub struct CancelSubscription<'info> {
 }
 
 #[derive(Accounts)]
-pub struct UpdateSubscription<'info> {
+pub struct CleanupCancelledSubscription<'info> {
     #[account(
         mut,
         seeds = [
             b"subscription",
             subscription.authority.as_ref(),
             subscription.recipient.as_ref(),
+        ],
+        bump = subscription.bump,
+        has_one = authority,
+        close = authority
+    )]
+    pub subscription: Account<'info, Subscription>,
+
+    #[account(mut)]
+    pub authority: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct UpdateSubscription<'info> {
+    #[account(
+        mut,
+        seeds = [
+            b"subscription",
+            subscription.authority.as_ref(),
+            subscription.recipient.as_ref(),  // ← FIXED: Added () after as_ref
         ],
         bump = subscription.bump,
         has_one = authority
@@ -330,26 +381,24 @@ pub struct UpdateSubscription<'info> {
     pub authority: Signer<'info>,
 }
 
-// Subscription account structure
 #[account]
 #[derive(InitSpace)]
 pub struct Subscription {
-    pub authority: Pubkey,              // User's Lazorkit smart wallet
-    pub recipient: Pubkey,              // Merchant receiving payments
-    pub user_token_account: Pubkey,     // User's USDC account
-    pub recipient_token_account: Pubkey, // Merchant's USDC account
-    pub token_mint: Pubkey,             // USDC mint
-    pub amount_per_period: u64,         // Amount to charge each period
-    pub interval_seconds: i64,          // Time between charges (e.g., 30 days)
-    pub last_charge_timestamp: i64,     // When last charged
-    pub created_at: i64,                // Subscription creation time
-    pub expires_at: Option<i64>,        // Optional expiry
-    pub is_active: bool,                // Can be cancelled
-    pub total_charged: u64,             // Running total
-    pub bump: u8,                       // PDA bump seed
+    pub authority: Pubkey,
+    pub recipient: Pubkey,
+    pub user_token_account: Pubkey,
+    pub recipient_token_account: Pubkey,
+    pub token_mint: Pubkey,
+    pub amount_per_period: u64,
+    pub interval_seconds: i64,
+    pub last_charge_timestamp: i64,
+    pub created_at: i64,
+    pub expires_at: Option<i64>,
+    pub is_active: bool,
+    pub total_charged: u64,
+    pub bump: u8,
 }
 
-// Error codes
 #[error_code]
 pub enum ErrorCode {
     #[msg("Subscription is not active")]
@@ -362,4 +411,6 @@ pub enum ErrorCode {
     SubscriptionAlreadyCancelled,
     #[msg("Invalid token account - must be owned by Token Program")]
     InvalidTokenAccount,
+    #[msg("Cannot cleanup - subscription is still active")]
+    SubscriptionStillActive,
 }

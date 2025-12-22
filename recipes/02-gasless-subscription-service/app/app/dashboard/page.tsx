@@ -7,6 +7,28 @@ import Link from 'next/link';
 import { PublicKey, Connection } from '@solana/web3.js';
 import { getSubscriptionPDA, buildCancelSubscriptionIx, buildCleanupCancelledSubscriptionIx, MERCHANT_WALLET } from '@/lib/program/subscription-service';
 import Navigation from '@/components/Navigation';
+import {
+    SUBSCRIPTION_CONSTANTS,
+    formatPrice,
+    getPlanById,
+    formatInterval
+} from '@/lib/constants';
+
+interface SubscriptionData {
+    authority: string;
+    recipient: string;
+    userTokenAccount: string;
+    recipientTokenAccount: string;
+    tokenMint: string;
+    amountPerPeriod: number;
+    intervalSeconds: number;
+    lastChargeTimestamp: number;
+    createdAt: number;
+    expiresAt: number | null;
+    isActive: boolean;
+    totalCharged: number;
+    bump: number;
+}
 
 export default function DashboardPage() {
     const { isConnected, wallet, signAndSendTransaction } = useWallet();
@@ -17,7 +39,7 @@ export default function DashboardPage() {
     const [cleaning, setCleaning] = useState(false);
     const [processing, setProcessing] = useState(false);
     const [subscriptionAddress, setSubscriptionAddress] = useState<string>('');
-    const [subscriptionData, setSubscriptionData] = useState<any>(null);
+    const [subscriptionData, setSubscriptionData] = useState<SubscriptionData | null>(null);
 
     useEffect(() => {
         if (!isConnected) {
@@ -30,12 +52,76 @@ export default function DashboardPage() {
         }
     }, [isConnected, wallet?.smartWallet]);
 
+    const parseSubscriptionData = (data: Buffer): SubscriptionData => {
+        let offset = 8;
+
+        const authority = new PublicKey(data.slice(offset, offset + 32)).toBase58();
+        offset += 32;
+
+        const recipient = new PublicKey(data.slice(offset, offset + 32)).toBase58();
+        offset += 32;
+
+        const userTokenAccount = new PublicKey(data.slice(offset, offset + 32)).toBase58();
+        offset += 32;
+
+        const recipientTokenAccount = new PublicKey(data.slice(offset, offset + 32)).toBase58();
+        offset += 32;
+
+        const tokenMint = new PublicKey(data.slice(offset, offset + 32)).toBase58();
+        offset += 32;
+
+        const amountPerPeriod = Number(data.readBigUInt64LE(offset)) / 1_000_000;
+        offset += 8;
+
+        const intervalSeconds = Number(data.readBigInt64LE(offset));
+        offset += 8;
+
+        const lastChargeTimestamp = Number(data.readBigInt64LE(offset));
+        offset += 8;
+
+        const createdAt = Number(data.readBigInt64LE(offset));
+        offset += 8;
+
+        const hasExpiry = data.readUInt8(offset) === 1;
+        offset += 1;
+
+        let expiresAt = null;
+        if (hasExpiry) {
+            expiresAt = Number(data.readBigInt64LE(offset));
+        }
+        offset += 8;
+
+        const isActive = data.readUInt8(offset) === 1;
+        offset += 1;
+
+        const totalCharged = Number(data.readBigUInt64LE(offset)) / 1_000_000;
+        offset += 8;
+
+        const bump = data.readUInt8(offset);
+
+        return {
+            authority,
+            recipient,
+            userTokenAccount,
+            recipientTokenAccount,
+            tokenMint,
+            amountPerPeriod,
+            intervalSeconds,
+            lastChargeTimestamp,
+            createdAt,
+            expiresAt,
+            isActive,
+            totalCharged,
+            bump,
+        };
+    };
+
     const checkSubscription = async () => {
         if (!wallet) return;
 
         setLoading(true);
         try {
-            const connection = new Connection('https://api.devnet.solana.com');
+            const connection = new Connection(SUBSCRIPTION_CONSTANTS.RPC_URL);
             const userWallet = new PublicKey(wallet.smartWallet);
             const [subscriptionPDA] = getSubscriptionPDA(userWallet, MERCHANT_WALLET);
 
@@ -46,24 +132,16 @@ export default function DashboardPage() {
             console.log('📊 Account exists:', accountInfo !== null);
 
             if (accountInfo) {
-                // Parse the is_active flag (it's after all the pubkeys and numbers)
-                // Offset: 8 (discriminator) + 32*5 (pubkeys) + 8*3 (u64s) + 8*2 (i64s) + 1 (option tag) + 8 (option value if present)
-                const data = accountInfo.data;
-                let offset = 8 + 32 * 5 + 8 + 8 + 8 + 8;
+                // ✅ FIX: Parse full subscription data instead of simple object
+                const parsedData = parseSubscriptionData(accountInfo.data);
 
-                // Check for expires_at option
-                const hasExpiresAt = data[offset] === 1;
-                offset += 1;
-                if (hasExpiresAt) {
-                    offset += 8;
-                }
+                console.log('📊 Parsed subscription data:', parsedData);
+                console.log('📊 Is Active:', parsedData.isActive);
+                console.log('📊 Amount:', parsedData.amountPerPeriod, 'USDC');
+                console.log('📊 Total Charged:', parsedData.totalCharged, 'USDC');
 
-                const isActive = data[offset] === 1;
-
-                console.log('📊 Is Active:', isActive);
-
-                setHasSubscription(isActive);
-                setSubscriptionData({ isActive, accountExists: true });
+                setHasSubscription(parsedData.isActive);
+                setSubscriptionData(parsedData);
             } else {
                 setHasSubscription(false);
                 setSubscriptionData(null);
@@ -80,7 +158,16 @@ export default function DashboardPage() {
     };
 
     const handleCancel = async () => {
-        if (!wallet || !confirm('Are you sure you want to cancel your subscription? This action cannot be undone.')) return;
+        if (!wallet || !subscriptionData) return;
+
+        const confirmed = confirm(
+            `Are you sure you want to cancel your subscription?\n\n` +
+            `Plan: ${formatPrice(subscriptionData.amountPerPeriod)} USDC/${formatInterval(subscriptionData.intervalSeconds)}\n` +
+            `Total charged: ${formatPrice(subscriptionData.totalCharged)} USDC\n\n` +
+            `You'll receive a refund of ~${SUBSCRIPTION_CONSTANTS.SETUP_FEE_SOL} SOL (setup fee).`
+        );
+
+        if (!confirmed) return;
 
         setCancelling(true);
         try {
@@ -90,12 +177,12 @@ export default function DashboardPage() {
             console.log('📤 Sending cancel transaction...');
             const signature = await signAndSendTransaction({
                 instructions: [instruction],
-                transactionOptions: { computeUnitLimit: 200_000 }
+                transactionOptions: { computeUnitLimit: SUBSCRIPTION_CONSTANTS.COMPUTE_UNIT_LIMIT }
             });
 
             console.log('✅ Transaction signature:', signature);
 
-            const connection = new Connection('https://api.devnet.solana.com');
+            const connection = new Connection(SUBSCRIPTION_CONSTANTS.RPC_URL);
             console.log('⏳ Waiting for confirmation...');
 
             const confirmation = await connection.confirmTransaction(signature, 'confirmed');
@@ -105,7 +192,11 @@ export default function DashboardPage() {
                 throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
             }
 
-            alert(`Subscription cancelled successfully!\n\nView on explorer:\nhttps://explorer.solana.com/tx/${signature}?cluster=devnet`);
+            alert(
+                `Subscription cancelled successfully!\n\n` +
+                `Setup fee refunded: ~${SUBSCRIPTION_CONSTANTS.SETUP_FEE_SOL} SOL\n\n` +
+                `View on explorer:\nhttps://explorer.solana.com/tx/${signature}?cluster=${SUBSCRIPTION_CONSTANTS.NETWORK}`
+            );
 
             setHasSubscription(false);
 
@@ -123,7 +214,15 @@ export default function DashboardPage() {
     };
 
     const handleCleanup = async () => {
-        if (!wallet || !confirm('This will cleanup your old cancelled subscription and refund the rent. Continue?')) return;
+        if (!wallet) return;
+
+        const confirmed = confirm(
+            `This will cleanup your old cancelled subscription and refund the rent.\n\n` +
+            `Refund amount: ~${SUBSCRIPTION_CONSTANTS.SETUP_FEE_SOL} SOL\n\n` +
+            `Continue?`
+        );
+
+        if (!confirmed) return;
 
         setCleaning(true);
         try {
@@ -133,12 +232,12 @@ export default function DashboardPage() {
             console.log('📤 Sending cleanup transaction...');
             const signature = await signAndSendTransaction({
                 instructions: [instruction],
-                transactionOptions: { computeUnitLimit: 200_000 }
+                transactionOptions: { computeUnitLimit: SUBSCRIPTION_CONSTANTS.COMPUTE_UNIT_LIMIT }
             });
 
             console.log('✅ Cleanup transaction signature:', signature);
 
-            const connection = new Connection('https://api.devnet.solana.com');
+            const connection = new Connection(SUBSCRIPTION_CONSTANTS.RPC_URL);
             console.log('⏳ Waiting for confirmation...');
 
             const confirmation = await connection.confirmTransaction(signature, 'confirmed');
@@ -148,16 +247,19 @@ export default function DashboardPage() {
                 throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
             }
 
-            alert(`Old subscription cleaned up successfully!\n\nRent refunded to your wallet.\n\nView on explorer:\nhttps://explorer.solana.com/tx/${signature}?cluster=devnet`);
+            alert(
+                `Old subscription cleaned up successfully!\n\n` +
+                `Rent refunded to your wallet: ~${SUBSCRIPTION_CONSTANTS.SETUP_FEE_SOL} SOL\n\n` +
+                `View on explorer:\nhttps://explorer.solana.com/tx/${signature}?cluster=${SUBSCRIPTION_CONSTANTS.NETWORK}`
+            );
 
             setTimeout(async () => {
-                console.log('🔄 Refreshing...');
                 await checkSubscription();
             }, 2000);
 
         } catch (err: any) {
             console.error('❌ Cleanup error:', err);
-            alert(`Failed to cleanup subscription:\n${err.message || err}`);
+            alert(`Failed to cleanup:\n${err.message || err}`);
         } finally {
             setCleaning(false);
         }
@@ -166,12 +268,37 @@ export default function DashboardPage() {
     const handleProcessPayment = async () => {
         setProcessing(true);
         try {
+            await new Promise(resolve => setTimeout(resolve, 1000));
             alert('Manual payment processing coming soon!\n\nThis will trigger the backend cron job to charge all active subscriptions.');
         } catch (err: any) {
             alert(`Failed: ${err.message}`);
         } finally {
             setProcessing(false);
         }
+    };
+
+    const getNextChargeDate = (): string => {
+        if (!subscriptionData) return 'Unknown';
+
+        const nextCharge = subscriptionData.lastChargeTimestamp + subscriptionData.intervalSeconds;
+        const now = Math.floor(Date.now() / 1000);
+        const daysUntil = Math.ceil((nextCharge - now) / (24 * 60 * 60));
+
+        if (daysUntil < 0) return 'Overdue';
+        if (daysUntil === 0) return 'Today';
+        if (daysUntil === 1) return 'Tomorrow';
+        return `In ${daysUntil} days`;
+    };
+
+    const getPlanName = (): string => {
+        if (!subscriptionData) return 'Unknown Plan';
+
+        const plan = getPlanById('basic')?.price === subscriptionData.amountPerPeriod ? 'Basic' :
+            getPlanById('pro')?.price === subscriptionData.amountPerPeriod ? 'Pro' :
+                getPlanById('enterprise')?.price === subscriptionData.amountPerPeriod ? 'Enterprise' :
+                    'Custom';
+
+        return `${plan} Plan`;
     };
 
     if (loading) {
@@ -185,8 +312,19 @@ export default function DashboardPage() {
         );
     }
 
-    // Show cleanup option if account exists but is not active
-    const showCleanup = subscriptionData?.accountExists && !subscriptionData?.isActive;
+    // ✅ FIX: Only show cleanup if account exists AND is not active
+    // EXTRA SAFETY: Triple-check that subscription is definitely not active
+    const showCleanup = subscriptionData !== null &&
+        subscriptionData.isActive === false &&
+        hasSubscription === false;
+
+    // Debug logging
+    console.log('=== CLEANUP BANNER DEBUG ===');
+    console.log('subscriptionData:', subscriptionData);
+    console.log('subscriptionData?.isActive:', subscriptionData?.isActive);
+    console.log('hasSubscription:', hasSubscription);
+    console.log('showCleanup:', showCleanup);
+    console.log('===========================');
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-violet-900">
@@ -203,7 +341,24 @@ export default function DashboardPage() {
                     </button>
                 </div>
 
-                {/* Cleanup Banner - Show if old cancelled subscription exists */}
+                {/* DEBUG PANEL - Remove this after testing */}
+                {SUBSCRIPTION_CONSTANTS.NETWORK === 'devnet' && subscriptionData && (
+                    <div className="mb-8 bg-gray-800/50 border border-gray-600 rounded-xl p-4 font-mono text-xs">
+                        <div className="text-white font-bold mb-2">🐛 Debug Info (remove after testing):</div>
+                        <div className="text-gray-300 space-y-1">
+                            <div>subscriptionData exists: {subscriptionData ? '✅ yes' : '❌ no'}</div>
+                            <div>isActive: {subscriptionData.isActive ? '✅ true (ACTIVE)' : '❌ false (CANCELLED)'}</div>
+                            <div>hasSubscription: {hasSubscription ? '✅ true' : '❌ false'}</div>
+                            <div>showCleanup: {showCleanup ? '⚠️ TRUE (banner showing)' : '✅ FALSE (banner hidden)'}</div>
+                            <div className="pt-2 border-t border-gray-600 mt-2">
+                                <div>Amount: {subscriptionData.amountPerPeriod} USDC</div>
+                                <div>Total Charged: {subscriptionData.totalCharged} USDC</div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* ONLY show cleanup if: (1) data exists, (2) isActive is false, (3) hasSubscription is false */}
                 {showCleanup && (
                     <div className="mb-8">
                         <div className="bg-orange-500/10 border border-orange-500/50 rounded-xl p-6 backdrop-blur-lg">
@@ -214,7 +369,7 @@ export default function DashboardPage() {
                                         Old Cancelled Subscription Found
                                     </h3>
                                     <p className="text-orange-200 mb-4">
-                                        You have an old cancelled subscription account that can be cleaned up to recover rent (~0.002 SOL).
+                                        You have an old cancelled subscription account that can be cleaned up to recover rent (~{SUBSCRIPTION_CONSTANTS.SETUP_FEE_SOL} SOL).
                                     </p>
                                     <button
                                         onClick={handleCleanup}
@@ -238,13 +393,16 @@ export default function DashboardPage() {
                             Browse Plans →
                         </Link>
                     </div>
-                ) : hasSubscription ? (
+                ) : hasSubscription && subscriptionData ? (
                     <div className="space-y-6">
                         <div className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-2xl p-8">
                             <div className="flex justify-between items-start mb-6">
                                 <div>
-                                    <h3 className="text-2xl font-bold text-white mb-2">Active Subscription</h3>
-                                    <p className="text-xl text-gray-400">$0.10 USDC <span className="text-sm">/ month</span></p>
+                                    <h3 className="text-2xl font-bold text-white mb-2">{getPlanName()}</h3>
+                                    <p className="text-xl text-gray-400">
+                                        {formatPrice(subscriptionData.amountPerPeriod)} USDC
+                                        <span className="text-sm"> / {formatInterval(subscriptionData.intervalSeconds)}</span>
+                                    </p>
                                 </div>
                                 <div className="flex flex-col items-end space-y-3">
                                     <span className="px-4 py-1 rounded-full bg-green-500/20 border border-green-500/50 text-green-400 text-sm font-semibold flex items-center gap-2">
@@ -264,17 +422,21 @@ export default function DashboardPage() {
                             <div className="space-y-3 mb-6 bg-white/5 rounded-lg p-4">
                                 <div className="flex justify-between items-center">
                                     <span className="text-gray-400">Billing Cycle:</span>
-                                    <span className="text-white font-medium">Every 30 days</span>
+                                    <span className="text-white font-medium">Every {Math.floor(subscriptionData.intervalSeconds / (24 * 60 * 60))} days</span>
                                 </div>
                                 <div className="flex justify-between items-center">
                                     <span className="text-gray-400">Next Charge:</span>
-                                    <span className="text-white font-medium">In 30 days</span>
+                                    <span className="text-white font-medium">{getNextChargeDate()}</span>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                    <span className="text-gray-400">Total Charged:</span>
+                                    <span className="text-white font-medium">{formatPrice(subscriptionData.totalCharged)} USDC</span>
                                 </div>
                                 <div className="border-t border-white/10 pt-3 mt-3"></div>
                                 <div className="flex justify-between items-center">
                                     <span className="text-gray-400">Contract Address:</span>
                                     <a
-                                        href={`https://explorer.solana.com/address/${subscriptionAddress}?cluster=devnet`}
+                                        href={`https://explorer.solana.com/address/${subscriptionAddress}?cluster=${SUBSCRIPTION_CONSTANTS.NETWORK}`}
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         className="text-blue-400 hover:text-blue-300 text-sm font-mono transition-colors"
@@ -287,37 +449,39 @@ export default function DashboardPage() {
                             <div className="p-4 rounded-lg bg-blue-500/10 border border-blue-500/20">
                                 <p className="text-blue-400 text-sm flex items-start gap-2">
                                     <span className="text-lg">ℹ️</span>
-                                    <span>First charge occurs 30 days after subscription creation.</span>
+                                    <span>Prepaid model: First payment already charged. Next charge {getNextChargeDate().toLowerCase()}.</span>
                                 </p>
                             </div>
                         </div>
 
-                        <div className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-2xl p-8">
-                            <div className="flex items-start gap-3 mb-4">
-                                <span className="text-2xl">⚙️</span>
-                                <div>
-                                    <h3 className="text-xl font-bold text-white">Admin Controls</h3>
-                                    <p className="text-gray-400 text-sm mt-1">Testing and backend operations</p>
+                        {SUBSCRIPTION_CONSTANTS.NETWORK === 'devnet' && (
+                            <div className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-2xl p-8">
+                                <div className="flex items-start gap-3 mb-4">
+                                    <span className="text-2xl">⚙️</span>
+                                    <div>
+                                        <h3 className="text-xl font-bold text-white">Admin Controls</h3>
+                                        <p className="text-gray-400 text-sm mt-1">Testing operations (Devnet only)</p>
+                                    </div>
+                                </div>
+
+                                <div className="space-y-4">
+                                    <button
+                                        onClick={handleProcessPayment}
+                                        disabled={processing}
+                                        className="w-full px-6 py-3 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/50 text-purple-300 font-semibold disabled:opacity-50 transition-all flex items-center justify-center gap-2"
+                                    >
+                                        {processing ? '⏳ Processing...' : '⚡ Trigger Payment Processing'}
+                                    </button>
+
+                                    <div className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
+                                        <p className="text-yellow-400 text-xs flex items-start gap-2">
+                                            <span>⚠️</span>
+                                            <span>Simulates backend cron job for testing</span>
+                                        </p>
+                                    </div>
                                 </div>
                             </div>
-
-                            <div className="space-y-4">
-                                <button
-                                    onClick={handleProcessPayment}
-                                    disabled={processing}
-                                    className="w-full px-6 py-3 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/50 text-purple-300 font-semibold disabled:opacity-50 transition-all flex items-center justify-center gap-2"
-                                >
-                                    {processing ? '⏳ Processing...' : '⚡ Trigger Payment Processing'}
-                                </button>
-
-                                <div className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
-                                    <p className="text-yellow-400 text-xs flex items-start gap-2">
-                                        <span>⚠️</span>
-                                        <span>Simulates backend cron job for testing</span>
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
+                        )}
                     </div>
                 ) : null}
             </main>
