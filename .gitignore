@@ -128,3 +128,11 @@ venv/
 ####################################
 *.swp
 *~
+/.idea/
+/.idea/inspectionProfiles/
+/.idea/.gitignore
+/.idea/lazorkit-cookbook.iml
+/.idea/misc.xml
+/.idea/modules.xml
+/.idea/vcs.xml
+/.idea/workspace.xml
