@@ -5,7 +5,10 @@ import { useWallet } from '@lazorkit/wallet';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { PublicKey, Connection } from '@solana/web3.js';
-import { getSubscriptionPDA, buildCancelSubscriptionIx, buildCleanupCancelledSubscriptionIx, MERCHANT_WALLET } from '@/lib/program/subscription-service';
+import {
+    getSubscriptionPDA, buildCancelSubscriptionIx, buildCleanupCancelledSubscriptionIx, MERCHANT_WALLET,
+    SUBSCRIPTION_PROGRAM_ID
+} from '@/lib/program/subscription-service';
 import Navigation from '@/components/Navigation';
 import {
     SUBSCRIPTION_CONSTANTS,
@@ -40,6 +43,9 @@ export default function DashboardPage() {
     const [processing, setProcessing] = useState(false);
     const [subscriptionAddress, setSubscriptionAddress] = useState<string>('');
     const [subscriptionData, setSubscriptionData] = useState<SubscriptionData | null>(null);
+    const [lastTriggerTime, setLastTriggerTime] = useState<number>(0);
+    const [cooldownRemaining, setCooldownRemaining] = useState<number>(0);
+
 
     useEffect(() => {
         if (!isConnected) {
@@ -48,9 +54,25 @@ export default function DashboardPage() {
         }
 
         if (wallet) {
+            // CRITICAL FIX: Force reset state before checking to prevent showing stale data
+            setHasSubscription(false);
+            setSubscriptionData(null);
+            setLoading(true);
+
             checkSubscription();
         }
     }, [isConnected, wallet?.smartWallet]);
+
+    useEffect(() => {
+        if (cooldownRemaining <= 0) return;
+
+        const interval = setInterval(() => {
+            const remaining = Math.max(0, 60 - Math.floor((Date.now() - lastTriggerTime) / 1000));
+            setCooldownRemaining(remaining);
+        }, 1000);
+
+        return () => clearInterval(interval);
+    }, [lastTriggerTime, cooldownRemaining]);
 
     const parseSubscriptionData = (data: Buffer): SubscriptionData => {
         let offset = 8;
@@ -85,11 +107,11 @@ export default function DashboardPage() {
         const hasExpiry = data.readUInt8(offset) === 1;
         offset += 1;
 
-        let expiresAt = null;
-        if (hasExpiry) {
-            expiresAt = Number(data.readBigInt64LE(offset));
+        let expiresAt: number | null = null;
+            if (hasExpiry) {
+                expiresAt = Number(data.readBigInt64LE(offset));
+            offset += 8;
         }
-        offset += 8;
 
         const isActive = data.readUInt8(offset) === 1;
         offset += 1;
@@ -132,7 +154,6 @@ export default function DashboardPage() {
             console.log('📊 Account exists:', accountInfo !== null);
 
             if (accountInfo) {
-                // ✅ FIX: Parse full subscription data instead of simple object
                 const parsedData = parseSubscriptionData(accountInfo.data);
 
                 console.log('📊 Parsed subscription data:', parsedData);
@@ -146,8 +167,8 @@ export default function DashboardPage() {
                 setHasSubscription(false);
                 setSubscriptionData(null);
             }
-
             setSubscriptionAddress(subscriptionPDA.toBase58());
+
         } catch (err) {
             console.error('❌ Error checking subscription:', err);
             setHasSubscription(false);
@@ -198,10 +219,13 @@ export default function DashboardPage() {
                 `View on explorer:\nhttps://explorer.solana.com/tx/${signature}?cluster=${SUBSCRIPTION_CONSTANTS.NETWORK}`
             );
 
+            // Force reset state
             setHasSubscription(false);
+            setSubscriptionData(null);
 
             setTimeout(async () => {
                 console.log('🔄 Double-checking subscription status...');
+                setLoading(true);
                 await checkSubscription();
             }, 3000);
 
@@ -253,6 +277,11 @@ export default function DashboardPage() {
                 `View on explorer:\nhttps://explorer.solana.com/tx/${signature}?cluster=${SUBSCRIPTION_CONSTANTS.NETWORK}`
             );
 
+            // Force reset state before refreshing
+            setHasSubscription(false);
+            setSubscriptionData(null);
+            setLoading(true);
+
             setTimeout(async () => {
                 await checkSubscription();
             }, 2000);
@@ -266,12 +295,99 @@ export default function DashboardPage() {
     };
 
     const handleProcessPayment = async () => {
+        // Check cooldown (60 seconds client-side)
+        const now = Date.now();
+        const timeSinceLastTrigger = Math.floor((now - lastTriggerTime) / 1000);
+
+        if (timeSinceLastTrigger < 60) {
+            const remaining = 60 - timeSinceLastTrigger;
+            alert(
+                `⏰ Please wait!\n\n` +
+                `You can trigger payment processing again in ${remaining} seconds.\n\n` +
+                `This cooldown prevents abuse of the demo feature.`
+            );
+            return;
+        }
+
+        const confirmed = confirm(
+            `🤖 Trigger Automatic Payment Processing?\n\n` +
+            `This will scan ALL active subscriptions and charge those where the billing interval has passed.\n\n` +
+            `In production, this would run automatically via a cron job every hour/day.\n\n` +
+            `Note: You can only do this once per minute.`
+        );
+
+        if (!confirmed) return;
+
         setProcessing(true);
         try {
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            alert('Manual payment processing coming soon!\n\nThis will trigger the backend cron job to charge all active subscriptions.');
+            console.log('📤 Triggering backend payment processor...');
+
+            const response = await fetch('/api/charge-subscriptions', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                if (response.status === 429) {
+                    // Rate limited
+                    alert(
+                        `⏰ Rate Limit Exceeded!\n\n` +
+                        `Please wait ${data.retryAfter || 60} seconds before trying again.\n\n` +
+                        `This prevents abuse of the demo feature.`
+                    );
+                    return;
+                }
+                throw new Error(data.error || 'Failed to process payments');
+            }
+
+            // Update cooldown
+            setLastTriggerTime(Date.now());
+            setCooldownRemaining(60);
+
+            // Show results
+            const { results } = data;
+
+            let message = `✅ Payment Processing Complete!\n\n`;
+            message += `📊 Results:\n`;
+            message += `  ✅ Charged: ${results.charged.length}\n`;
+            message += `  ⏭️  Skipped: ${results.skipped.length}\n`;
+            message += `  ❌ Errors: ${results.errors.length}\n`;
+            message += `  📋 Total: ${results.total}\n\n`;
+
+            if (results.charged.length > 0) {
+                message += `💰 Charged Transactions:\n`;
+                results.charged.forEach((sig: string, i: number) => {
+                    message += `  ${i + 1}. ${sig.slice(0, 8)}...${sig.slice(-4)}\n`;
+                });
+                message += `\n🔗 View on Explorer (devnet)\n`;
+            }
+
+            if (results.skipped.length > 0 && results.skipped.length <= 3) {
+                message += `\n⏭️  Skipped:\n`;
+                results.skipped.forEach((item: any) => {
+                    message += `  • ${item.address.slice(0, 8)}... - ${item.reason}\n`;
+                });
+            }
+
+            alert(message);
+
+            // Refresh subscription data
+            if (results.charged.length > 0) {
+                setTimeout(() => {
+                    setHasSubscription(false);
+                    setSubscriptionData(null);
+                    setLoading(true);
+                    checkSubscription();
+                }, 2000);
+            }
+
         } catch (err: any) {
-            alert(`Failed: ${err.message}`);
+            console.error('❌ Payment processing error:', err);
+            alert(`❌ Failed to process payments:\n\n${err.message}`);
         } finally {
             setProcessing(false);
         }
@@ -318,14 +434,6 @@ export default function DashboardPage() {
         subscriptionData.isActive === false &&
         hasSubscription === false;
 
-    // Debug logging
-    console.log('=== CLEANUP BANNER DEBUG ===');
-    console.log('subscriptionData:', subscriptionData);
-    console.log('subscriptionData?.isActive:', subscriptionData?.isActive);
-    console.log('hasSubscription:', hasSubscription);
-    console.log('showCleanup:', showCleanup);
-    console.log('===========================');
-
     return (
         <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-violet-900">
             <Navigation />
@@ -334,29 +442,18 @@ export default function DashboardPage() {
                 <div className="flex justify-between items-center mb-8">
                     <h1 className="text-4xl font-bold text-white">Dashboard</h1>
                     <button
-                        onClick={checkSubscription}
+                        onClick={() => {
+                            // Force clear state before refresh
+                            setHasSubscription(false);
+                            setSubscriptionData(null);
+                            setLoading(true);
+                            checkSubscription();
+                        }}
                         className="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-white text-sm transition-all"
                     >
                         🔄 Refresh
                     </button>
                 </div>
-
-                {/* DEBUG PANEL - Remove this after testing */}
-                {SUBSCRIPTION_CONSTANTS.NETWORK === 'devnet' && subscriptionData && (
-                    <div className="mb-8 bg-gray-800/50 border border-gray-600 rounded-xl p-4 font-mono text-xs">
-                        <div className="text-white font-bold mb-2">🐛 Debug Info (remove after testing):</div>
-                        <div className="text-gray-300 space-y-1">
-                            <div>subscriptionData exists: {subscriptionData ? '✅ yes' : '❌ no'}</div>
-                            <div>isActive: {subscriptionData.isActive ? '✅ true (ACTIVE)' : '❌ false (CANCELLED)'}</div>
-                            <div>hasSubscription: {hasSubscription ? '✅ true' : '❌ false'}</div>
-                            <div>showCleanup: {showCleanup ? '⚠️ TRUE (banner showing)' : '✅ FALSE (banner hidden)'}</div>
-                            <div className="pt-2 border-t border-gray-600 mt-2">
-                                <div>Amount: {subscriptionData.amountPerPeriod} USDC</div>
-                                <div>Total Charged: {subscriptionData.totalCharged} USDC</div>
-                            </div>
-                        </div>
-                    </div>
-                )}
 
                 {/* ONLY show cleanup if: (1) data exists, (2) isActive is false, (3) hasSubscription is false */}
                 {showCleanup && (
@@ -459,25 +556,134 @@ export default function DashboardPage() {
                                 <div className="flex items-start gap-3 mb-4">
                                     <span className="text-2xl">⚙️</span>
                                     <div>
-                                        <h3 className="text-xl font-bold text-white">Admin Controls</h3>
-                                        <p className="text-gray-400 text-sm mt-1">Testing operations (Devnet only)</p>
+                                        <h3 className="text-xl font-bold text-white">Payment Processing Demo</h3>
+                                        <p className="text-gray-400 text-sm mt-1">
+                                            Simulate automatic backend cron job (Devnet only)
+                                        </p>
                                     </div>
                                 </div>
 
                                 <div className="space-y-4">
+                                    {/* Cooldown indicator */}
+                                    {cooldownRemaining > 0 && (
+                                        <div className="p-4 rounded-lg bg-yellow-500/10 border border-yellow-500/30">
+                                            <div className="flex items-center gap-3">
+                                                <div className="relative w-12 h-12">
+                                                    <svg className="w-12 h-12 transform -rotate-90">
+                                                        <circle
+                                                            cx="24"
+                                                            cy="24"
+                                                            r="20"
+                                                            stroke="currentColor"
+                                                            strokeWidth="4"
+                                                            fill="none"
+                                                            className="text-yellow-500/20"
+                                                        />
+                                                        <circle
+                                                            cx="24"
+                                                            cy="24"
+                                                            r="20"
+                                                            stroke="currentColor"
+                                                            strokeWidth="4"
+                                                            fill="none"
+                                                            strokeDasharray={`${2 * Math.PI * 20}`}
+                                                            strokeDashoffset={`${2 * Math.PI * 20 * (cooldownRemaining / 60)}`}
+                                                            className="text-yellow-400 transition-all duration-1000"
+                                                        />
+                                                    </svg>
+                                                    <div className="absolute inset-0 flex items-center justify-center">
+                                <span className="text-yellow-400 text-xs font-bold">
+                                    {cooldownRemaining}s
+                                </span>
+                                                    </div>
+                                                </div>
+                                                <div className="flex-1">
+                                                    <div className="text-yellow-400 font-semibold text-sm">
+                                                        ⏰ Cooldown Active
+                                                    </div>
+                                                    <div className="text-yellow-300 text-xs mt-1">
+                                                        Wait {cooldownRemaining} seconds before triggering again
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Trigger button */}
                                     <button
                                         onClick={handleProcessPayment}
-                                        disabled={processing}
-                                        className="w-full px-6 py-3 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/50 text-purple-300 font-semibold disabled:opacity-50 transition-all flex items-center justify-center gap-2"
+                                        disabled={processing || cooldownRemaining > 0}
+                                        className={`w-full px-6 py-3 rounded-lg font-semibold transition-all flex items-center justify-center gap-2 ${
+                                            processing || cooldownRemaining > 0
+                                                ? 'bg-gray-700/50 text-gray-500 cursor-not-allowed'
+                                                : 'bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/50 text-purple-300'
+                                        }`}
                                     >
-                                        {processing ? '⏳ Processing...' : '⚡ Trigger Payment Processing'}
+                                        {processing ? (
+                                            <>
+                                                <span className="animate-spin">⏳</span>
+                                                Processing Payments...
+                                            </>
+                                        ) : cooldownRemaining > 0 ? (
+                                            <>
+                                                <span>🔒</span>
+                                                Cooldown ({cooldownRemaining}s)
+                                            </>
+                                        ) : (
+                                            <>
+                                                <span>⚡</span>
+                                                Trigger Payment Processing
+                                            </>
+                                        )}
                                     </button>
 
-                                    <div className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
-                                        <p className="text-yellow-400 text-xs flex items-start gap-2">
-                                            <span>⚠️</span>
-                                            <span>Simulates backend cron job for testing</span>
-                                        </p>
+                                    {/* Info boxes */}
+                                    <div className="grid grid-cols-1 gap-3">
+                                        <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
+                                            <div className="flex gap-2">
+                                                <span className="text-lg">💡</span>
+                                                <div className="flex-1">
+                                                    <div className="text-blue-400 font-semibold text-xs mb-1">
+                                                        How It Works
+                                                    </div>
+                                                    <div className="text-blue-300 text-xs">
+                                                        This button simulates the backend cron job that would run automatically
+                                                        every hour/day in production. It scans all subscriptions and charges
+                                                        those where the billing interval has passed.
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="p-3 rounded-lg bg-purple-500/10 border border-purple-500/20">
+                                            <div className="flex gap-2">
+                                                <span className="text-lg">🤖</span>
+                                                <div className="flex-1">
+                                                    <div className="text-purple-400 font-semibold text-xs mb-1">
+                                                        No User Signature Required
+                                                    </div>
+                                                    <div className="text-purple-300 text-xs">
+                                                        When charging subscriptions, users don't need to sign anything!
+                                                        The merchant's backend uses the token delegation to charge automatically.
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
+                                            <div className="flex gap-2">
+                                                <span className="text-lg">⚠️</span>
+                                                <div className="flex-1">
+                                                    <div className="text-yellow-400 font-semibold text-xs mb-1">
+                                                        Rate Limited (Demo Protection)
+                                                    </div>
+                                                    <div className="text-yellow-300 text-xs">
+                                                        You can only trigger this once per minute to prevent abuse.
+                                                        In production, the cron job would run on a schedule (e.g., daily).
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>

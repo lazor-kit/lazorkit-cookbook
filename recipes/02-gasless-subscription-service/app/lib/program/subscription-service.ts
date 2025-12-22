@@ -3,7 +3,7 @@ import { BN } from '@coral-xyz/anchor';
 import * as crypto from 'crypto';
 
 export const SUBSCRIPTION_PROGRAM_ID = new PublicKey(
-    process.env.NEXT_PUBLIC_SUBSCRIPTION_PROGRAM_ID || '5MpaXq6rwiWfnpjR5THsa6TsLRMJ8jxgNYw3HH86yKwU'
+    process.env.NEXT_PUBLIC_SUBSCRIPTION_PROGRAM_ID || '3kZ9Fdzadk8NXwjHaSabKrXBsU1y226BgXJdHZ78Qx4v'
 );
 
 // Circle's USDC on Devnet

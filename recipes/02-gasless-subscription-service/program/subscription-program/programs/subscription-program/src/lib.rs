@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program::invoke_signed;
 use spl_token::instruction as token_instruction;
 
-declare_id!("5MpaXq6rwiWfnpjR5THsa6TsLRMJ8jxgNYw3HH86yKwU");
+declare_id!("3kZ9Fdzadk8NXwjHaSabKrXBsU1y226BgXJdHZ78Qx4v");
 
 #[program]
 pub mod subscription_program {
@@ -174,12 +174,13 @@ pub mod subscription_program {
         Ok(())
     }
 
-    /// Cancel subscription - closes account and refunds rent
+    /// Cancel subscription - revokes delegation and closes account
     pub fn cancel_subscription(ctx: Context<CancelSubscription>) -> Result<()> {
-        let subscription = &ctx.accounts.subscription;
+        let subscription = &mut ctx.accounts.subscription;  // ← Make mutable
 
         require!(subscription.is_active, ErrorCode::SubscriptionAlreadyCancelled);
 
+        // Revoke token delegation
         let revoke_ix = token_instruction::revoke(
             &ctx.accounts.token_program.key(),
             &ctx.accounts.user_token_account.key(),
@@ -196,6 +197,9 @@ pub mod subscription_program {
             ],
         )?;
 
+        // Mark as inactive before account closure
+        subscription.is_active = false;
+
         msg!("Subscription cancelled by user");
         msg!("Token delegation revoked");
         msg!("Account closed - rent refunded to user");
@@ -203,13 +207,12 @@ pub mod subscription_program {
         Ok(())
     }
 
-    /// Cleanup old cancelled subscription
     pub fn cleanup_cancelled_subscription(ctx: Context<CleanupCancelledSubscription>) -> Result<()> {
         let subscription = &ctx.accounts.subscription;
 
-        require!(!subscription.is_active, ErrorCode::SubscriptionStillActive);
-
-        msg!("Cleaning up old cancelled subscription");
+        msg!("Cleaning up subscription (migration mode)");
+        msg!("Authority: {}", subscription.authority);
+        msg!("Recipient: {}", subscription.recipient);
         msg!("Account closed - rent refunded to user");
 
         Ok(())

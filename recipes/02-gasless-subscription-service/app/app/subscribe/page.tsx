@@ -12,8 +12,9 @@ import {
     SUBSCRIPTION_CONSTANTS,
     PlanFeatures,
     getBadgeColorClasses,
-    getGradientClasses
+    getGradientClasses, formatInterval
 } from '@/lib/constants';
+import { getSubscriptionPDA, MERCHANT_WALLET, SUBSCRIPTION_PROGRAM_ID } from '@/lib/program/subscription-service';
 
 export default function SubscribePage() {
     const { isConnected, wallet, signAndSendTransaction } = useWallet();
@@ -90,9 +91,10 @@ export default function SubscribePage() {
             });
 
             console.log('✅ Subscription created:', signature);
+
             alert(
                 `${plan.displayName} subscription created successfully!\n\n` +
-                `💰 First payment of ${plan.priceDisplay} USDC charged immediately!\n\n` +
+                `💰 First payment of ${plan.priceDisplay} USDC charged!\n\n` +
                 `View transaction:\nhttps://explorer.solana.com/tx/${signature}?cluster=${SUBSCRIPTION_CONSTANTS.NETWORK}`
             );
 
@@ -153,7 +155,7 @@ export default function SubscribePage() {
                                 </h3>
                                 <div className="space-y-2 text-blue-200 text-sm">
                                     <p>
-                                        <strong>One-time setup:</strong> ~${SUBSCRIPTION_CONSTANTS.SETUP_FEE_USD.toFixed(4)} ({SUBSCRIPTION_CONSTANTS.SETUP_FEE_SOL} SOL) to create your subscription account
+                                        <strong>One-time setup:</strong> ~${SUBSCRIPTION_CONSTANTS.SETUP_FEE_USD.toFixed(4)} ({SUBSCRIPTION_CONSTANTS.SETUP_FEE_SOL} SOL) to create your subscription account which gets refunded post subscription cancellation
                                     </p>
                                     <p>
                                         <strong>First payment:</strong> Charged immediately when you subscribe (prepaid)
@@ -274,7 +276,7 @@ export default function SubscribePage() {
                             </button>
 
                             <p className="text-center text-gray-500 text-xs mt-4">
-                                Charged immediately, then every 30 days
+                                Charged immediately, then every {formatInterval(plan.interval)}
                             </p>
                         </div>
                     ))}

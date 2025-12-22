@@ -20,6 +20,23 @@ export interface PlanFeatures {
 
 // All available subscription plans
 export const PLANS: Record<string, PlanFeatures> = {
+    test: {
+        id: 'test',
+        name: 'Test',
+        displayName: 'Test Plan',
+        price: 0.01,
+        priceDisplay: '$0.01',
+        interval: 60,
+        intervalDisplay: 'minute',
+        description: 'Perfect for trying out our service',
+        features: [
+            'Prepaid - first month charged now',
+            'Automatic recurring billing',
+            'Zero gas fees',
+            'Cancel anytime (refund setup fee)',
+            'Face ID authentication',
+        ]
+    },
     basic: {
         id: 'basic',
         name: 'Basic',
@@ -151,10 +168,7 @@ export function formatPrice(priceUSDC: number): string {
  */
 export function formatInterval(intervalSeconds: number): string {
     const days = Math.floor(intervalSeconds / (24 * 60 * 60));
-    if (days === 30 || days === 31) return 'month';
-    if (days === 7) return 'week';
-    if (days === 1) return 'day';
-    if (days === 365) return 'year';
+    if (days < 1) return `${intervalSeconds} seconds`;
     return `${days} days`;
 }
 
