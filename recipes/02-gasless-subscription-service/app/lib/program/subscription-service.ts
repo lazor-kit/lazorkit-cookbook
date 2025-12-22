@@ -252,3 +252,43 @@ export async function hasActiveSubscription(
     return false;
   }
 }
+
+export async function getUSDCBalance(userWallet: PublicKey, connection: Connection): Promise<number> {
+    try {
+        const userTokenAccount = getAssociatedTokenAddressSync(USDC_MINT, userWallet);
+        const accountInfo = await connection.getAccountInfo(userTokenAccount);
+
+        if (!accountInfo) {
+            return 0;
+        }
+
+        // Parse token account data (first 32 bytes = mint, next 32 = owner, then 8 bytes = amount)
+        const data = accountInfo.data;
+        const amount = Number(data.readBigUInt64LE(64));
+
+        // USDC has 6 decimals on devnet
+        return amount / 1_000_000;
+    } catch (err) {
+        console.error('Error fetching USDC balance:', err);
+        return 0;
+    }
+}
+
+export async function buildCleanupCancelledSubscriptionIx(
+    userWallet: PublicKey
+): Promise<TransactionInstruction> {
+    const [subscriptionPDA] = getSubscriptionPDA(userWallet, MERCHANT_WALLET);
+
+    const discriminator = getInstructionDiscriminator('cleanup_cancelled_subscription');
+
+    const instruction = {
+        keys: [
+            { pubkey: subscriptionPDA, isSigner: false, isWritable: true },
+            { pubkey: userWallet, isSigner: true, isWritable: true },
+        ],
+        programId: SUBSCRIPTION_PROGRAM_ID,
+        data: discriminator,
+    };
+
+    return new TransactionInstruction(instruction);
+}

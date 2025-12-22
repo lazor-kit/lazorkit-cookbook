@@ -1,191 +1,249 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useWallet } from '@lazorkit/wallet';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { PublicKey, Connection } from '@solana/web3.js';
-import { PLANS, PlanId } from '@/lib/constants';
-import { hasActiveSubscription } from '@/lib/program/subscription-service';
+import { buildInitializeSubscriptionIx, hasActiveSubscription } from '@/lib/program/subscription-service';
+import Navigation from '@/components/Navigation';
 
 export default function SubscribePage() {
-  const { isConnected, wallet } = useWallet();
-  const router = useRouter();
-  const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
-  const [existingSubscription, setExistingSubscription] = useState(false);
-  const [checking, setChecking] = useState(true);
+    const { isConnected, wallet, signAndSendTransaction } = useWallet();
+    const router = useRouter();
+    const [subscribing, setSubscribing] = useState(false);
+    const [checking, setChecking] = useState(true);
+    const [hasSubscription, setHasSubscription] = useState(false);
+    const [showFeeInfo, setShowFeeInfo] = useState(false);
 
-  useEffect(() => {
-    const checkSubscription = async () => {
-      if (!wallet) {
-        setChecking(false);
-        return;
-      }
+    useEffect(() => {
+        if (!isConnected) {
+            router.push('/');
+            return;
+        }
 
-      try {
-        const connection = new Connection('https://api.devnet.solana.com');
-        const userWallet = new PublicKey(wallet.smartWallet);
-        const hasSubscription = await hasActiveSubscription(userWallet, connection);
-        setExistingSubscription(hasSubscription);
-      } catch (err) {
-        console.error('Error checking subscription:', err);
-      } finally {
-        setChecking(false);
-      }
+        if (wallet) {
+            checkExistingSubscription();
+        }
+    }, [isConnected, wallet]);
+
+    const checkExistingSubscription = async () => {
+        if (!wallet) return;
+
+        setChecking(true);
+        try {
+            const connection = new Connection('https://api.devnet.solana.com');
+            const userWallet = new PublicKey(wallet.smartWallet);
+            const hasActive = await hasActiveSubscription(userWallet, connection);
+            setHasSubscription(hasActive);
+        } catch (err) {
+            console.error('Error checking subscription:', err);
+            setHasSubscription(false);
+        } finally {
+            setChecking(false);
+        }
     };
 
-    checkSubscription();
-  }, [wallet]);
+    const handleSubscribe = async () => {
+        if (!wallet) return;
 
-  const handleSubscribe = async (planId: string) => {
-    if (!isConnected) {
-      alert('Please connect your wallet first');
-      return;
+        if (hasSubscription) {
+            alert('You already have an active subscription!\n\nPlease cancel your existing subscription first.');
+            return;
+        }
+
+        setSubscribing(true);
+        try {
+            const userWallet = new PublicKey(wallet.smartWallet);
+            const connection = new Connection('https://api.devnet.solana.com');
+
+            console.log('🚀 Creating subscription...');
+
+            const instructions = await buildInitializeSubscriptionIx(
+                {
+                    userWallet,
+                    amountPerPeriod: 0.1,
+                    intervalSeconds: 30 * 24 * 60 * 60,
+                },
+                connection
+            );
+
+            const signature = await signAndSendTransaction({
+                instructions,
+                transactionOptions: { computeUnitLimit: 400_000 }
+            });
+
+            console.log('✅ Subscription created:', signature);
+            alert(`Subscription created successfully!\n\nView transaction:\nhttps://explorer.solana.com/tx/${signature}?cluster=devnet`);
+
+            setTimeout(() => {
+                router.push('/dashboard');
+            }, 1500);
+
+        } catch (err: any) {
+            console.error('❌ Subscription error:', err);
+
+            let errorMessage = err.message || err;
+
+            if (errorMessage.includes('already exists')) {
+                errorMessage = 'You already have an active subscription!\n\nPlease cancel your existing subscription first.';
+                setHasSubscription(true);
+            }
+
+            alert(`Failed to create subscription:\n${errorMessage}`);
+        } finally {
+            setSubscribing(false);
+        }
+    };
+
+    if (!isConnected || checking) {
+        return (
+            <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-violet-900">
+                <Navigation />
+                <div className="flex items-center justify-center py-20">
+                    <div className="text-white text-lg">Loading...</div>
+                </div>
+            </div>
+        );
     }
 
-    if (existingSubscription) {
-      alert('You already have an active subscription. Please cancel it first from the dashboard.');
-      router.push('/dashboard');
-      return;
-    }
-    
-    setSelectedPlan(planId);
-    router.push(`/subscribe/confirm?plan=${planId}`);
-  };
+    return (
+        <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-violet-900">
+            <Navigation />
 
-  const plansArray = Object.values(PLANS);
-
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-violet-900">
-      <nav className="border-b border-white/10 backdrop-blur-lg bg-black/20">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <Link href="/" className="flex items-center space-x-2">
-              <div className="w-8 h-8 bg-gradient-to-br from-purple-400 to-pink-400 rounded-lg"></div>
-              <span className="text-xl font-bold text-white">LazorSub</span>
-            </Link>
-            <div className="flex items-center space-x-4">
-              {isConnected && wallet && (
-                <Link href="/dashboard" className="text-sm text-gray-300 hover:text-white">
-                  Dashboard
-                </Link>
-              )}
-            </div>
-          </div>
-        </div>
-      </nav>
-
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20">
-        <div className="text-center mb-16">
-          <h1 className="text-5xl font-bold text-white mb-4">
-            Choose Your Plan
-          </h1>
-          <p className="text-xl text-gray-300">
-            Subscribe with Face ID. No gas fees. Cancel anytime.
-          </p>
-        </div>
-
-        {existingSubscription && (
-          <div className="max-w-2xl mx-auto mb-8 p-4 rounded-xl bg-yellow-500/10 border border-yellow-500/20">
-            <p className="text-yellow-400 text-sm text-center">
-              ⚠️ You already have an active subscription.{' '}
-              <Link href="/dashboard" className="underline">
-                Go to dashboard
-              </Link>{' '}
-              to manage it.
-            </p>
-          </div>
-        )}
-
-        <div className="grid md:grid-cols-3 gap-8 max-w-6xl mx-auto">
-          {plansArray.map((plan) => (
-            <div
-              key={plan.id}
-              className={`relative p-8 rounded-2xl backdrop-blur-lg border transition-all duration-200 hover:scale-105 ${
-                plan.popular
-                  ? 'bg-gradient-to-br from-purple-500/20 to-pink-500/20 border-purple-400/50 shadow-lg shadow-purple-500/50'
-                  : 'bg-white/5 border-white/10 hover:bg-white/10'
-              }`}
-            >
-              {plan.popular && (
-                <div className="absolute -top-4 left-1/2 transform -translate-x-1/2">
-                  <span className="bg-gradient-to-r from-purple-500 to-pink-500 text-white px-4 py-1 rounded-full text-sm font-semibold">
-                    Most Popular
-                  </span>
+            <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20">
+                <div className="text-center mb-12">
+                    <h1 className="text-5xl font-bold text-white mb-4">Choose Your Plan</h1>
+                    <p className="text-xl text-gray-300">Simple, transparent pricing. Cancel anytime.</p>
                 </div>
-              )}
 
-              <div className="text-center mb-8">
-                <h3 className="text-2xl font-bold text-white mb-2">{plan.name}</h3>
-                <div className="flex items-baseline justify-center">
-                  <span className="text-5xl font-bold text-white">${plan.price}</span>
-                  <span className="text-gray-400 ml-2">USDC</span>
+                {/* Fee Information Banner */}
+                <div className="max-w-2xl mx-auto mb-8">
+                    <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-5 backdrop-blur-lg">
+                        <div className="flex items-start gap-3">
+                            <div className="text-2xl">ℹ️</div>
+                            <div className="flex-1">
+                                <h3 className="text-lg font-bold text-blue-300 mb-2">
+                                    How Payments Work
+                                </h3>
+                                <div className="space-y-2 text-blue-200 text-sm">
+                                    <p>
+                                        <strong>One-time setup:</strong> ~$0.0005 (0.002 SOL) to create your subscription account
+                                    </p>
+                                    <p>
+                                        <strong>Transaction fees:</strong> $0 - paid by our paymaster (gasless for you!)
+                                    </p>
+                                    <p>
+                                        <strong>On cancellation:</strong> Full refund of setup fee
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={() => setShowFeeInfo(!showFeeInfo)}
+                                    className="mt-3 text-blue-400 hover:text-blue-300 text-xs underline"
+                                >
+                                    {showFeeInfo ? 'Hide' : 'Learn more'} about fees
+                                </button>
+
+                                {showFeeInfo && (
+                                    <div className="mt-4 pt-4 border-t border-blue-500/20 text-xs text-blue-300 space-y-2">
+                                        <p><strong>Why the setup fee?</strong></p>
+                                        <p>
+                                            Solana requires rent (~0.002 SOL) for creating accounts.
+                                            This prevents spam and you get it back when you cancel!
+                                        </p>
+                                        <p className="pt-2"><strong>Cost breakdown:</strong></p>
+                                        <ul className="list-disc list-inside space-y-1 pl-2">
+                                            <li>Setup: ~$0.0005 (refundable)</li>
+                                            <li>All gas fees: $0 (paid by paymaster)</li>
+                                            <li>Net lifetime cost: <strong>$0</strong></li>
+                                        </ul>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <p className="text-gray-400 mt-2">per 30 days</p>
-              </div>
 
-              <ul className="space-y-4 mb-8">
-                {plan.features.map((feature, index) => (
-                  <li key={index} className="flex items-start">
-                    <svg
-                      className="w-5 h-5 text-green-400 mr-3 mt-0.5 flex-shrink-0"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M5 13l4 4L19 7"
-                      />
-                    </svg>
-                    <span className="text-gray-300">{feature}</span>
-                  </li>
-                ))}
-              </ul>
+                {/* Existing Subscription Banner */}
+                {hasSubscription && (
+                    <div className="max-w-2xl mx-auto mb-8">
+                        <div className="bg-yellow-500/10 border border-yellow-500/50 rounded-xl p-6 backdrop-blur-lg">
+                            <div className="flex items-start gap-4">
+                                <div className="text-3xl">⚠️</div>
+                                <div className="flex-1">
+                                    <h3 className="text-xl font-bold text-yellow-400 mb-2">
+                                        You Already Have an Active Subscription
+                                    </h3>
+                                    <p className="text-yellow-200 mb-4">
+                                        Please cancel your existing subscription before creating a new one.
+                                    </p>
+                                    <Link
+                                        href="/dashboard"
+                                        className="inline-block px-6 py-2 rounded-lg bg-yellow-500/20 hover:bg-yellow-500/30 border border-yellow-500/50 text-yellow-300 font-semibold transition-all"
+                                    >
+                                        Go to Dashboard →
+                                    </Link>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
-              <button
-                onClick={() => handleSubscribe(plan.id)}
-                disabled={!isConnected || checking || existingSubscription}
-                className={`w-full py-3 rounded-xl font-semibold transition-all duration-200 ${
-                  plan.popular
-                    ? 'bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white shadow-lg shadow-purple-500/50'
-                    : 'bg-white/10 hover:bg-white/20 text-white border border-white/20'
-                } disabled:opacity-50 disabled:cursor-not-allowed`}
-              >
-                {checking ? 'Checking...' : !isConnected ? 'Connect Wallet First' : existingSubscription ? 'Already Subscribed' : 'Subscribe Now'}
-              </button>
-            </div>
-          ))}
+                {/* Plan Card */}
+                <div className="max-w-lg mx-auto">
+                    <div className={`bg-white/5 backdrop-blur-lg border border-white/10 rounded-2xl p-8 transition-all ${hasSubscription ? 'opacity-50 pointer-events-none' : 'hover:border-purple-500/50'}`}>
+                        <div className="text-center mb-6">
+                            <div className="inline-block px-4 py-1 rounded-full bg-purple-500/20 border border-purple-500/50 text-purple-300 text-sm font-semibold mb-4">
+                                POPULAR
+                            </div>
+                            <h2 className="text-3xl font-bold text-white mb-2">Premium Plan</h2>
+                            <div className="flex items-baseline justify-center gap-2">
+                                <span className="text-5xl font-bold text-white">$0.10</span>
+                                <span className="text-gray-400">USDC / month</span>
+                            </div>
+                        </div>
+
+                        <div className="space-y-4 mb-8">
+                            <div className="flex items-center gap-3">
+                                <div className="w-5 h-5 rounded-full bg-green-500/20 flex items-center justify-center">
+                                    <span className="text-green-400 text-xs">✓</span>
+                                </div>
+                                <span className="text-gray-300">Automatic recurring billing</span>
+                            </div>
+                            <div className="flex items-center gap-3">
+                                <div className="w-5 h-5 rounded-full bg-green-500/20 flex items-center justify-center">
+                                    <span className="text-green-400 text-xs">✓</span>
+                                </div>
+                                <span className="text-gray-300">Zero gas fees</span>
+                            </div>
+                            <div className="flex items-center gap-3">
+                                <div className="w-5 h-5 rounded-full bg-green-500/20 flex items-center justify-center">
+                                    <span className="text-green-400 text-xs">✓</span>
+                                </div>
+                                <span className="text-gray-300">Cancel anytime</span>
+                            </div>
+                            <div className="flex items-center gap-3">
+                                <div className="w-5 h-5 rounded-full bg-green-500/20 flex items-center justify-center">
+                                    <span className="text-green-400 text-xs">✓</span>
+                                </div>
+                                <span className="text-gray-300">Face ID authentication</span>
+                            </div>
+                        </div>
+
+                        <button
+                            onClick={handleSubscribe}
+                            disabled={subscribing || hasSubscription}
+                            className="w-full px-8 py-4 rounded-xl bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 transition-all duration-200 font-semibold text-white shadow-lg shadow-purple-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            {subscribing ? 'Creating Subscription...' : hasSubscription ? 'Already Subscribed' : 'Subscribe Now'}
+                        </button>
+
+                        <p className="text-center text-gray-500 text-sm mt-4">
+                            First charge in 30 days • Devnet only
+                        </p>
+                    </div>
+                </div>
+            </main>
         </div>
-
-        {!isConnected && (
-          <div className="mt-12 p-6 rounded-xl bg-yellow-500/10 border border-yellow-500/20 max-w-2xl mx-auto">
-            <div className="flex items-start">
-              <svg
-                className="w-6 h-6 text-yellow-400 mr-3 flex-shrink-0"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                />
-              </svg>
-              <div>
-                <h4 className="text-yellow-400 font-semibold mb-1">Wallet Not Connected</h4>
-                <p className="text-gray-300 text-sm">
-                  Please connect your wallet using Face ID to subscribe to a plan.
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-      </main>
-    </div>
-  );
+    );
 }
