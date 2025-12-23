@@ -8,7 +8,6 @@ const rateLimitStore = new Map<string, { count: number; resetTime: number }>();
 // Configuration
 const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
 const RATE_LIMIT_MAX_REQUESTS = 3; // Max 3 requests per minute per IP
-const DEMO_MODE = process.env.NODE_ENV !== 'production'; // Only allow in dev/demo
 
 function checkRateLimit(identifier: string): { allowed: boolean; retryAfter?: number } {
     const now = Date.now();
@@ -62,14 +61,6 @@ function buildChargeInstruction(
 
 export async function POST(request: NextRequest) {
     try {
-        // Security check: Only allow in demo mode
-        if (!DEMO_MODE) {
-            return NextResponse.json(
-                { error: 'This endpoint is only available in demo mode' },
-                { status: 403 }
-            );
-        }
-
         // Get client IP for rate limiting
         const forwardedFor = request.headers.get('x-forwarded-for');
         const ip = forwardedFor ? forwardedFor.split(',')[0] : 'unknown';
