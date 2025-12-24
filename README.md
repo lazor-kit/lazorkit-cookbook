@@ -1,6 +1,6 @@
 # LazorKit Cookbook
 
-**Production-ready recipes for building Solana dApps with LazorKit SDK**
+**Practical recipes for building Solana dApps with LazorKit SDK**
 
 A collection of practical examples demonstrating how LazorKit simplifies Solana development - from basic passkey authentication to advanced subscription billing systems with automated recurring payments.
 

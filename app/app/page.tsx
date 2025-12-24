@@ -106,7 +106,7 @@ export default function HomePage() {
                 Subscription Service
               </h3>
               <p className="text-gray-400 mb-4">
-                Production-ready subscription billing with automatic recurring charges. Full-stack example!
+                Practical subscription billing with automatic recurring charges. Full-stack example!
               </p>
               <ul className="space-y-2 text-sm text-gray-300">
                 <li className="flex items-center gap-2">
@@ -224,7 +224,7 @@ export default function HomePage() {
                 Real-World Examples
               </h3>
               <p className="text-gray-400">
-                Not just toy demos. Each recipe solves actual problems and includes production-ready code you can copy and adapt.
+                Not just toy demos. Each recipe solves actual problems and includes detailed code you can copy and adapt.
               </p>
             </div>
 
