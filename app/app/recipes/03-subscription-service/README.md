@@ -321,7 +321,6 @@ This is a proof-of-concept. For production:
 | Area | Recommendation |
 |------|----------------|
 | **Backend** | Use scheduled jobs (cron) instead of manual triggers |
-| **Rate Limiting** | Use Redis or database instead of in-memory |
 | **Security** | Store merchant keypair in secure vault (AWS KMS, etc.) |
 | **Paymaster** | Work with LazorKit to cover PDA rent fees |
 | **Monitoring** | Add logging, alerts for failed charges |

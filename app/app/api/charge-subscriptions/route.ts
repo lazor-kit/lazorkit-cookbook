@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Connection, Keypair, Transaction, sendAndConfirmTransaction, TransactionInstruction, PublicKey } from '@solana/web3.js';
 import * as crypto from 'crypto';
 
-// Rate limiting storage (in-memory - for production use Redis/database)
 const rateLimitStore = new Map<string, { count: number; resetTime: number }>();
 
 // Configuration
