@@ -305,150 +305,37 @@ return (
 
 ## Complete Example
 
-Here's the full component from `page.tsx`:
+The complete implementation includes balance fetching, recipient validation, automatic token account creation, and gasless transfer.
+
+**Core Functions:**
+
+| Function | Description |
+|----------|-------------|
+| `handleSend()` | Validates inputs, builds instructions, sends gasless transaction |
+| `fetchBalance()` | Fetches user's USDC balance |
+| `getAssociatedTokenAddressSync()` | Derives token account addresses for sender and recipient |
+
+**Key Pattern - Gasless Transfer:**
 
 ```typescript
-'use client';
+const { signAndSendTransaction } = useWallet();
 
-import { useState, useEffect } from 'react';
-import { useWallet } from '@lazorkit/wallet';
-import { Connection, PublicKey, TransactionInstruction } from '@solana/web3.js';
-import { TOKEN_PROGRAM_ID, createTransferInstruction } from '@solana/spl-token';
-
-const RPC_URL = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com';
-const USDC_MINT = new PublicKey(
-  process.env.NEXT_PUBLIC_USDC_MINT || '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU'
+// Build transfer instruction
+const transferIx = createTransferInstruction(
+  senderTokenAccount,
+  recipientTokenAccount,
+  senderPubkey,
+  amount * 1_000_000,  // USDC has 6 decimals
 );
 
-function getAssociatedTokenAddressSync(mint: PublicKey, owner: PublicKey): PublicKey {
-  const [address] = PublicKey.findProgramAddressSync(
-    [
-      owner.toBuffer(),
-      TOKEN_PROGRAM_ID.toBuffer(),
-      mint.toBuffer()
-    ],
-    new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL')
-  );
-  return address;
-}
-
-export default function Recipe02Page() {
-  const { wallet, isConnected, connect, signAndSendTransaction } = useWallet();
-  const [usdcBalance, setUsdcBalance] = useState<number | null>(null);
-  const [sending, setSending] = useState(false);
-  const [recipient, setRecipient] = useState('');
-  const [amount, setAmount] = useState('');
-  const [lastTxSignature, setLastTxSignature] = useState('');
-
-  useEffect(() => {
-    if (isConnected && wallet) {
-      fetchBalance();
-    }
-  }, [isConnected, wallet]);
-
-  const fetchBalance = async () => {
-    if (!wallet) return;
-
-    try {
-      const connection = new Connection(RPC_URL);
-      const publicKey = new PublicKey(wallet.smartWallet);
-      const userTokenAccount = getAssociatedTokenAddressSync(USDC_MINT, publicKey);
-      const accountInfo = await connection.getAccountInfo(userTokenAccount);
-
-      if (!accountInfo) {
-        setUsdcBalance(0);
-        return;
-      }
-
-      const data = accountInfo.data;
-      const amountRaw = Number(data.readBigUInt64LE(64));
-      setUsdcBalance(amountRaw / 1_000_000);
-    } catch (err) {
-      console.error('Error fetching balance:', err);
-      setUsdcBalance(0);
-    }
-  };
-
-  const handleSend = async () => {
-    if (!wallet || !recipient || !amount) {
-      alert('Please fill in all fields');
-      return;
-    }
-
-    let recipientPubkey: PublicKey;
-    try {
-      recipientPubkey = new PublicKey(recipient);
-    } catch (err) {
-      alert('Invalid recipient address');
-      return;
-    }
-
-    const amountNum = parseFloat(amount);
-    if (isNaN(amountNum) || amountNum <= 0) {
-      alert('Invalid amount');
-      return;
-    }
-
-    setSending(true);
-    try {
-      const connection = new Connection(RPC_URL);
-      const senderPubkey = new PublicKey(wallet.smartWallet);
-
-      const senderTokenAccount = getAssociatedTokenAddressSync(USDC_MINT, senderPubkey);
-      const recipientTokenAccount = getAssociatedTokenAddressSync(USDC_MINT, recipientPubkey);
-
-      const recipientAccountInfo = await connection.getAccountInfo(recipientTokenAccount);
-      const instructions: TransactionInstruction[] = [];
-
-      if (!recipientAccountInfo) {
-        const createAccountIx = new TransactionInstruction({
-          keys: [
-            { pubkey: senderPubkey, isSigner: true, isWritable: true },
-            { pubkey: recipientTokenAccount, isSigner: false, isWritable: true },
-            { pubkey: recipientPubkey, isSigner: false, isWritable: false },
-            { pubkey: USDC_MINT, isSigner: false, isWritable: false },
-            { pubkey: new PublicKey('11111111111111111111111111111111'), isSigner: false, isWritable: false },
-            { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
-          ],
-          programId: new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL'),
-          data: Buffer.from([]),
-        });
-        instructions.push(createAccountIx);
-      }
-
-      const transferIx = createTransferInstruction(
-        senderTokenAccount,
-        recipientTokenAccount,
-        senderPubkey,
-        amountNum * 1_000_000,
-        [],
-        TOKEN_PROGRAM_ID
-      );
-      instructions.push(transferIx);
-
-      const signature = await signAndSendTransaction({
-        instructions,
-        transactionOptions: { computeUnitLimit: 200_000 }
-      });
-
-      setLastTxSignature(signature);
-      await connection.confirmTransaction(signature, 'confirmed');
-
-      alert(`Transfer successful! Sent ${amountNum} USDC with zero gas fees!`);
-      setRecipient('');
-      setAmount('');
-      await fetchBalance();
-    } catch (err: any) {
-      console.error('Transfer error:', err);
-      alert(`Transfer failed: ${err.message || err}`);
-    } finally {
-      setSending(false);
-    }
-  };
-
-  // ... render component
-}
+// Send gasless - paymaster covers fees automatically
+const signature = await signAndSendTransaction({
+  instructions: [transferIx],
+  transactionOptions: { computeUnitLimit: 200_000 }
+});
 ```
+
+> **Source**: See the full implementation at [`page.tsx`](page.tsx)
 
 ---
 

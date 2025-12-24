@@ -273,102 +273,35 @@ Allow users to disconnect their wallet:
 
 ## Complete Example
 
-Here's the complete component from `page.tsx`:
+The complete implementation includes wallet connection, balance fetching, and airdrop functionality.
+
+**Core Functions:**
+
+| Function | Description |
+|----------|-------------|
+| `handleConnect()` | Initiates passkey authentication via `connect()` |
+| `fetchBalances()` | Fetches SOL and USDC balances using Solana Web3.js |
+| `handleAirdrop()` | Requests devnet SOL airdrop for testing |
+| `getAssociatedTokenAddressSync()` | Derives the user's USDC token account address |
+
+**Key Pattern - Wallet Connection:**
 
 ```typescript
-'use client';
+const { wallet, isConnected, connect, disconnect } = useWallet();
 
-import { useState, useEffect } from 'react';
-import { useWallet } from '@lazorkit/wallet';
-import { Connection, LAMPORTS_PER_SOL, PublicKey } from '@solana/web3.js';
+const handleConnect = async () => {
+  try {
+    await connect();  // Opens LazorKit portal for passkey auth
+  } catch (err) {
+    // Handle popup blocked or connection errors
+  }
+};
 
-const RPC_URL = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com';
-const USDC_MINT = new PublicKey(
-  process.env.NEXT_PUBLIC_USDC_MINT || '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU'
-);
-
-function getAssociatedTokenAddressSync(mint: PublicKey, owner: PublicKey): PublicKey {
-  const [address] = PublicKey.findProgramAddressSync(
-    [
-      owner.toBuffer(),
-      new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA').toBuffer(),
-      mint.toBuffer()
-    ],
-    new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL')
-  );
-  return address;
-}
-
-export default function Recipe01Page() {
-  const { wallet, isConnected, connect, disconnect } = useWallet();
-  const [solBalance, setSolBalance] = useState<number | null>(null);
-  const [usdcBalance, setUsdcBalance] = useState<number | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (isConnected && wallet) {
-      fetchBalances();
-    }
-  }, [isConnected, wallet]);
-
-  const fetchBalances = async () => {
-    if (!wallet) return;
-
-    try {
-      const connection = new Connection(RPC_URL);
-      const publicKey = new PublicKey(wallet.smartWallet);
-
-      // Fetch SOL balance
-      const solBalanceLamports = await connection.getBalance(publicKey);
-      setSolBalance(solBalanceLamports / LAMPORTS_PER_SOL);
-
-      // Fetch USDC balance
-      const userTokenAccount = getAssociatedTokenAddressSync(USDC_MINT, publicKey);
-      const accountInfo = await connection.getAccountInfo(userTokenAccount);
-
-      if (!accountInfo) {
-        setUsdcBalance(0);
-        return;
-      }
-
-      const data = accountInfo.data;
-      const amount = Number(data.readBigUInt64LE(64));
-      setUsdcBalance(amount / 1_000_000);
-    } catch (err) {
-      console.error('Error fetching balances:', err);
-    }
-  };
-
-  const handleConnect = async () => {
-    setLoading(true);
-    try {
-      await connect();
-    } catch (err: any) {
-      console.error('Connection error:', err);
-      alert(`Failed to connect: ${err.message || 'Unknown error'}`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div>
-      {!isConnected ? (
-        <button onClick={handleConnect} disabled={loading}>
-          {loading ? 'Creating Wallet...' : 'Create Wallet with Passkey'}
-        </button>
-      ) : (
-        <div>
-          <p>Wallet: {wallet?.smartWallet}</p>
-          <p>SOL: {solBalance?.toFixed(4)}</p>
-          <p>USDC: {usdcBalance?.toFixed(2)}</p>
-          <button onClick={disconnect}>Disconnect</button>
-        </div>
-      )}
-    </div>
-  );
-}
+// After connection, access wallet address:
+const walletAddress = wallet?.smartWallet;
 ```
+
+> **Source**: See the full implementation at [`page.tsx`](page.tsx)
 
 ---
 

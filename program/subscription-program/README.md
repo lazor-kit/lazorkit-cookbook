@@ -6,6 +6,26 @@ This Anchor program powers the subscription billing system in Recipe 03. It enab
 
 ---
 
+## Why This Program?
+
+This program demonstrates how **LazorKit can be integrated with complex on-chain programs** to build real-world applications. By combining LazorKit's passkey authentication and gasless transactions with custom Anchor programs, developers can create sophisticated blockchain applications while maintaining a seamless user experience.
+
+The subscription service showcases:
+- **Token delegation** for automatic recurring payments (no user signature needed after initial setup)
+- **PDA-based state management** for secure subscription storage
+- **Prepaid billing model** similar to traditional SaaS platforms
+- **Complete lifecycle management** (create, charge, cancel, update)
+
+> **⚠️ Important: Devnet Deployment**
+>
+> This program is currently deployed on **Solana Devnet** and should be considered a **proof-of-concept**. Before deploying to Mainnet:
+>
+> 1. **Security Audit Required**: The program should undergo a professional security audit to identify and fix any vulnerabilities
+> 2. **Upgrade Authority**: After successful audit, the **upgrade authority can be revoked** to make the program fully trustless and immutable
+> 3. **Production Hardening**: Additional security measures, monitoring, and error handling should be implemented
+
+---
+
 ## Program Overview
 
 | Property | Value |
@@ -44,25 +64,25 @@ This Anchor program powers the subscription billing system in Recipe 03. It enab
 
 ## Account Structure
 
-```rust
-#[account]
-#[derive(InitSpace)]
-pub struct Subscription {
-    pub authority: Pubkey,              // User/subscriber wallet
-    pub recipient: Pubkey,              // Merchant wallet
-    pub user_token_account: Pubkey,     // User's USDC token account
-    pub recipient_token_account: Pubkey, // Merchant's USDC token account
-    pub token_mint: Pubkey,             // USDC mint address
-    pub amount_per_period: u64,         // Charge amount (in token base units)
-    pub interval_seconds: i64,          // Seconds between charges
-    pub last_charge_timestamp: i64,     // Unix timestamp of last charge
-    pub created_at: i64,                // Subscription creation time
-    pub expires_at: Option<i64>,        // Optional expiry timestamp
-    pub is_active: bool,                // Whether subscription is active
-    pub total_charged: u64,             // Cumulative amount charged
-    pub bump: u8,                       // PDA bump seed
-}
-```
+The `Subscription` account stores all state for a user's subscription:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `authority` | `Pubkey` | User/subscriber wallet |
+| `recipient` | `Pubkey` | Merchant wallet |
+| `user_token_account` | `Pubkey` | User's USDC token account |
+| `recipient_token_account` | `Pubkey` | Merchant's USDC token account |
+| `token_mint` | `Pubkey` | USDC mint address |
+| `amount_per_period` | `u64` | Charge amount (in token base units) |
+| `interval_seconds` | `i64` | Seconds between charges |
+| `last_charge_timestamp` | `i64` | Unix timestamp of last charge |
+| `created_at` | `i64` | Subscription creation time |
+| `expires_at` | `Option<i64>` | Optional expiry timestamp |
+| `is_active` | `bool` | Whether subscription is active |
+| `total_charged` | `u64` | Cumulative amount charged |
+| `bump` | `u8` | PDA bump seed |
+
+> **Source**: See the `Subscription` struct in [`lib.rs`](programs/subscription-program/src/lib.rs)
 
 ---
 
@@ -79,35 +99,15 @@ Creates a new subscription and charges the first payment immediately (prepaid mo
 | `interval_seconds` | `i64` | Seconds between charges (e.g., 2592000 for 30 days) |
 | `expires_at` | `Option<i64>` | Optional Unix timestamp when subscription ends |
 
-**Accounts:**
-```rust
-#[derive(Accounts)]
-pub struct InitializeSubscription<'info> {
-    #[account(init, payer = payer, space = 8 + Subscription::INIT_SPACE,
-        seeds = [b"subscription", authority.key().as_ref(), recipient.key().as_ref()],
-        bump)]
-    pub subscription: Account<'info, Subscription>,
-    pub authority: Signer<'info>,           // User signing the transaction
-    pub recipient: UncheckedAccount<'info>, // Merchant wallet
-    #[account(mut)]
-    pub user_token_account: UncheckedAccount<'info>,
-    #[account(mut)]
-    pub recipient_token_account: UncheckedAccount<'info>,
-    pub token_mint: UncheckedAccount<'info>,
-    pub token_program: UncheckedAccount<'info>,
-    #[account(mut)]
-    pub payer: Signer<'info>,               // Pays for PDA rent
-    pub system_program: Program<'info, System>,
-}
-```
-
 **What it does:**
 1. **Delegates token account** - Approves subscription PDA as delegate for user's token account
 2. **Charges first payment** - Transfers `amount_per_period` from user to merchant immediately
 3. **Initializes state** - Stores subscription details in the PDA
 
+**Core Logic** (token delegation and first charge):
+
 ```rust
-// Step 1: Delegate token account
+// Delegate user's token account to subscription PDA
 let delegate_ix = token_instruction::approve(
     &ctx.accounts.token_program.key(),
     &ctx.accounts.user_token_account.key(),
@@ -117,7 +117,7 @@ let delegate_ix = token_instruction::approve(
     u64::MAX,  // Unlimited delegation
 )?;
 
-// Step 2: Charge first payment
+// Charge first payment using PDA as delegate
 let transfer_ix = token_instruction::transfer(
     &ctx.accounts.token_program.key(),
     &ctx.accounts.user_token_account.key(),
@@ -126,36 +126,16 @@ let transfer_ix = token_instruction::transfer(
     &[],
     amount_per_period,
 )?;
-
 invoke_signed(&transfer_ix, accounts, signer_seeds)?;
-
-// Step 3: Initialize state
-subscription.last_charge_timestamp = clock.unix_timestamp;
-subscription.total_charged = amount_per_period;
-subscription.is_active = true;
 ```
+
+> **Source**: See `initialize_subscription()` and `InitializeSubscription` accounts in [`lib.rs`](programs/subscription-program/src/lib.rs)
 
 ---
 
 ### 2. `charge_subscription`
 
-Charges a recurring payment. Called by the backend service - no user signature required.
-
-**Accounts:**
-```rust
-#[derive(Accounts)]
-pub struct ChargeSubscription<'info> {
-    #[account(mut,
-        seeds = [b"subscription", subscription.authority.as_ref(), subscription.recipient.as_ref()],
-        bump = subscription.bump)]
-    pub subscription: Account<'info, Subscription>,
-    #[account(mut, constraint = user_token_account.key() == subscription.user_token_account)]
-    pub user_token_account: UncheckedAccount<'info>,
-    #[account(mut, constraint = recipient_token_account.key() == subscription.recipient_token_account)]
-    pub recipient_token_account: UncheckedAccount<'info>,
-    pub token_program: UncheckedAccount<'info>,
-}
-```
+Charges a recurring payment. Called by the backend service - **no user signature required** (uses token delegation).
 
 **Validation checks:**
 1. Subscription must be active (`is_active == true`)
@@ -163,32 +143,28 @@ pub struct ChargeSubscription<'info> {
 3. Enough time must have passed since last charge (`time_since_last >= interval_seconds`)
 4. Token accounts must be valid SPL token accounts
 
+**Core Logic:**
+
 ```rust
-pub fn charge_subscription(ctx: Context<ChargeSubscription>) -> Result<()> {
-    let subscription = &mut ctx.accounts.subscription;
-    let clock = Clock::get()?;
+// Validations
+require!(subscription.is_active, ErrorCode::SubscriptionInactive);
 
-    // Validations
-    require!(subscription.is_active, ErrorCode::SubscriptionInactive);
-
-    if let Some(expires_at) = subscription.expires_at {
-        require!(clock.unix_timestamp < expires_at, ErrorCode::SubscriptionExpired);
-    }
-
-    let time_since_last_charge = clock.unix_timestamp - subscription.last_charge_timestamp;
-    require!(time_since_last_charge >= subscription.interval_seconds, ErrorCode::IntervalNotMet);
-
-    // Transfer tokens using PDA as delegate
-    let transfer_ix = token_instruction::transfer(...)?;
-    invoke_signed(&transfer_ix, accounts, signer_seeds)?;
-
-    // Update state
-    subscription.last_charge_timestamp = clock.unix_timestamp;
-    subscription.total_charged += subscription.amount_per_period;
-
-    Ok(())
+if let Some(expires_at) = subscription.expires_at {
+    require!(clock.unix_timestamp < expires_at, ErrorCode::SubscriptionExpired);
 }
+
+let time_since_last_charge = clock.unix_timestamp - subscription.last_charge_timestamp;
+require!(time_since_last_charge >= subscription.interval_seconds, ErrorCode::IntervalNotMet);
+
+// Transfer tokens using PDA as delegate (no user signature needed!)
+invoke_signed(&transfer_ix, accounts, signer_seeds)?;
+
+// Update state
+subscription.last_charge_timestamp = clock.unix_timestamp;
+subscription.total_charged += subscription.amount_per_period;
 ```
+
+> **Source**: See `charge_subscription()` in [`lib.rs`](programs/subscription-program/src/lib.rs)
 
 ---
 
@@ -196,48 +172,30 @@ pub fn charge_subscription(ctx: Context<ChargeSubscription>) -> Result<()> {
 
 Cancels a subscription, revokes token delegation, and refunds PDA rent to user.
 
-**Accounts:**
-```rust
-#[derive(Accounts)]
-pub struct CancelSubscription<'info> {
-    #[account(mut,
-        seeds = [b"subscription", subscription.authority.as_ref(), subscription.recipient.as_ref()],
-        bump = subscription.bump,
-        has_one = authority,
-        close = authority)]  // Refunds rent to authority
-    pub subscription: Account<'info, Subscription>,
-    #[account(mut)]
-    pub authority: Signer<'info>,
-    #[account(mut, constraint = user_token_account.key() == subscription.user_token_account)]
-    pub user_token_account: UncheckedAccount<'info>,
-    pub token_program: UncheckedAccount<'info>,
-}
-```
-
 **What it does:**
 1. **Revokes delegation** - Removes PDA's ability to transfer user's tokens
 2. **Marks inactive** - Sets `is_active = false`
-3. **Closes account** - Returns ~0.002 SOL rent to user
+3. **Closes account** - Returns ~0.002 SOL rent to user (via Anchor's `close` constraint)
+
+**Core Logic:**
 
 ```rust
-pub fn cancel_subscription(ctx: Context<CancelSubscription>) -> Result<()> {
-    require!(ctx.accounts.subscription.is_active, ErrorCode::SubscriptionAlreadyCancelled);
+require!(subscription.is_active, ErrorCode::SubscriptionAlreadyCancelled);
 
-    // Revoke token delegation
-    let revoke_ix = token_instruction::revoke(
-        &ctx.accounts.token_program.key(),
-        &ctx.accounts.user_token_account.key(),
-        &ctx.accounts.authority.key(),
-        &[],
-    )?;
-    invoke(&revoke_ix, accounts)?;
+// Revoke token delegation - user regains full control
+let revoke_ix = token_instruction::revoke(
+    &ctx.accounts.token_program.key(),
+    &ctx.accounts.user_token_account.key(),
+    &ctx.accounts.authority.key(),
+    &[],
+)?;
+invoke(&revoke_ix, accounts)?;
 
-    // Mark inactive (account closes automatically via `close = authority`)
-    ctx.accounts.subscription.is_active = false;
-
-    Ok(())
-}
+// Mark inactive (account closes automatically via `close = authority`)
+subscription.is_active = false;
 ```
+
+> **Source**: See `cancel_subscription()` in [`lib.rs`](programs/subscription-program/src/lib.rs)
 
 ---
 
@@ -386,73 +344,36 @@ anchor deploy
 
 ## Frontend Integration
 
-Example of calling the program from TypeScript:
+The cookbook includes a complete TypeScript helper library for interacting with this program.
+
+**Key Functions:**
+
+| Function | Description |
+|----------|-------------|
+| `getSubscriptionPDA()` | Derives the subscription account address |
+| `buildInitializeSubscriptionIx()` | Builds the initialize instruction with all required accounts |
+| `buildCancelSubscriptionIx()` | Builds the cancel instruction |
+| `hasActiveSubscription()` | Checks if user has an active subscription |
+| `getUSDCBalance()` | Fetches user's USDC balance |
+
+**Example Usage:**
 
 ```typescript
-import { PublicKey, TransactionInstruction, SystemProgram } from '@solana/web3.js';
-import { BN } from '@coral-xyz/anchor';
-import * as crypto from 'crypto';
+import { buildInitializeSubscriptionIx } from '@/lib/program/subscription-service';
 
-// Generate Anchor instruction discriminator
-function getDiscriminator(name: string): Buffer {
-  return crypto.createHash('sha256')
-    .update(`global:${name}`)
-    .digest()
-    .slice(0, 8);
-}
+// Build subscription instructions
+const instructions = await buildInitializeSubscriptionIx({
+  userWallet,
+  amountPerPeriod: 0.10,      // $0.10 USDC
+  intervalSeconds: 2592000,    // 30 days
+  expiresAt: undefined,        // No expiry
+}, connection);
 
-// Build initialize instruction
-function buildInitializeIx(params: {
-  subscription: PublicKey;
-  authority: PublicKey;
-  recipient: PublicKey;
-  userTokenAccount: PublicKey;
-  recipientTokenAccount: PublicKey;
-  tokenMint: PublicKey;
-  amount: number;
-  interval: number;
-  expiresAt?: number;
-}): TransactionInstruction {
-  const discriminator = getDiscriminator('initialize_subscription');
-
-  const amountBuf = new BN(params.amount).toArrayLike(Buffer, 'le', 8);
-  const intervalBuf = new BN(params.interval).toArrayLike(Buffer, 'le', 8);
-
-  let data: Buffer;
-  if (params.expiresAt) {
-    data = Buffer.concat([
-      discriminator,
-      amountBuf,
-      intervalBuf,
-      Buffer.from([1]),  // has_expiry = true
-      new BN(params.expiresAt).toArrayLike(Buffer, 'le', 8)
-    ]);
-  } else {
-    data = Buffer.concat([
-      discriminator,
-      amountBuf,
-      intervalBuf,
-      Buffer.from([0])  // has_expiry = false
-    ]);
-  }
-
-  return new TransactionInstruction({
-    keys: [
-      { pubkey: params.subscription, isSigner: false, isWritable: true },
-      { pubkey: params.authority, isSigner: true, isWritable: false },
-      { pubkey: params.recipient, isSigner: false, isWritable: false },
-      { pubkey: params.userTokenAccount, isSigner: false, isWritable: true },
-      { pubkey: params.recipientTokenAccount, isSigner: false, isWritable: true },
-      { pubkey: params.tokenMint, isSigner: false, isWritable: false },
-      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
-      { pubkey: params.authority, isSigner: true, isWritable: true },  // payer
-      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-    ],
-    programId: SUBSCRIPTION_PROGRAM_ID,
-    data,
-  });
-}
+// Send via LazorKit (gasless!)
+const signature = await signAndSendTransaction({ instructions });
 ```
+
+> **Source**: See the full TypeScript helper library at [`subscription-service.ts`](../../app/lib/program/subscription-service.ts)
 
 ---
 
