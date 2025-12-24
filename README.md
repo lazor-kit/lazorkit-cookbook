@@ -98,16 +98,19 @@ Open [http://localhost:3000](http://localhost:3000) to see the cookbook homepage
 
 ```
 lazorkit-cookbook/
-├── app/                                    # Next.js 15 Application
+├── app/                                    # Next.js 16 Application
 │   ├── app/
 │   │   ├── recipes/
-│   │   │   ├── 01-passkey-wallet-basics/   # Recipe 01: Wallet basics
-│   │   │   │   └── page.tsx
-│   │   │   ├── 02-gasless-transfer/        # Recipe 02: Gasless transfers
-│   │   │   │   └── page.tsx
-│   │   │   └── 03-subscription-service/    # Recipe 03: Subscriptions
+│   │   │   ├── 01-passkey-wallet-basics/   # Recipe 01 (has README.md tutorial)
+│   │   │   │   ├── page.tsx
+│   │   │   │   └── README.md               # 📖 Tutorial: Passkey Wallet Basics
+│   │   │   ├── 02-gasless-transfer/        # Recipe 02 (has README.md tutorial)
+│   │   │   │   ├── page.tsx
+│   │   │   │   └── README.md               # 📖 Tutorial: Gasless USDC Transfer
+│   │   │   └── 03-subscription-service/    # Recipe 03 (has README.md tutorial)
 │   │   │       ├── subscribe/page.tsx      # Plan selection & subscribe
-│   │   │       └── dashboard/page.tsx      # Manage subscription
+│   │   │       ├── dashboard/page.tsx      # Manage subscription
+│   │   │       └── README.md               # 📖 Tutorial: Subscription Service
 │   │   ├── api/
 │   │   │   └── charge-subscriptions/       # Backend recurring charge job
 │   │   │       └── route.ts
@@ -130,10 +133,19 @@ lazorkit-cookbook/
 │       ├── programs/subscription-program/
 │       │   └── src/lib.rs                  # Anchor program (Rust)
 │       ├── Anchor.toml
-│       └── README.md                       # Program documentation
+│       └── README.md                       # 📖 Anchor Program Documentation
 │
 └── README.md                               # This file
 ```
+
+### Documentation Quick Links
+
+| Document | Description |
+|----------|-------------|
+| [Recipe 01 Tutorial](app/app/recipes/01-passkey-wallet-basics/README.md) | Passkey authentication & wallet basics |
+| [Recipe 02 Tutorial](app/app/recipes/02-gasless-transfer/README.md) | Gasless USDC transfers with paymaster |
+| [Recipe 03 Tutorial](app/app/recipes/03-subscription-service/README.md) | Subscription billing system |
+| [Anchor Program Docs](program/subscription-program/README.md) | Smart contract implementation |
 
 ---
 
@@ -141,8 +153,8 @@ lazorkit-cookbook/
 
 | Category | Technology |
 |----------|------------|
-| **Framework** | Next.js 15 (App Router) |
-| **React** | React 19 |
+| **Framework** | Next.js 16.1.0 (App Router) |
+| **React** | React 19.2.3 |
 | **Styling** | Tailwind CSS 4 |
 | **Blockchain** | Solana (Devnet) |
 | **Wallet SDK** | LazorKit @lazorkit/wallet 2.0.1 |
@@ -154,7 +166,7 @@ lazorkit-cookbook/
 
 ## Core LazorKit Features Demonstrated
 
-### 1. Passkey Authentication (Recipe 01)
+### 1. Passkey Authentication ([Recipe 01 Tutorial](app/app/recipes/01-passkey-wallet-basics/README.md))
 Create wallets using WebAuthn (Face ID/Touch ID) - no seed phrases, no browser extensions.
 
 ```typescript
@@ -171,7 +183,7 @@ function WalletButton() {
 }
 ```
 
-### 2. Gasless Transactions (Recipe 02)
+### 2. Gasless Transactions ([Recipe 02 Tutorial](app/app/recipes/02-gasless-transfer/README.md))
 Send tokens without users needing SOL for gas - LazorKit's paymaster covers the fees.
 
 ```typescript
@@ -191,7 +203,7 @@ const signature = await signAndSendTransaction({
 });
 ```
 
-### 3. Smart Wallet Integration (Recipe 03)
+### 3. Smart Wallet Integration ([Recipe 03 Tutorial](app/app/recipes/03-subscription-service/README.md))
 Integrate with custom Anchor programs for advanced use cases like recurring payments.
 
 ```typescript
@@ -204,6 +216,8 @@ const instructions = await buildInitializeSubscriptionIx({
 
 await signAndSendTransaction({ instructions });
 ```
+
+> **Deep Dive**: See the [Anchor Program Documentation](program/subscription-program/README.md) for the smart contract implementation.
 
 ---
 
@@ -238,9 +252,11 @@ export function LazorkitProvider({ children }) {
 
 | If you are... | Start with... |
 |---------------|---------------|
-| New to Solana | Recipe 01 - Understand wallet basics |
-| Familiar with Solana | Recipe 02 - See how LazorKit simplifies your code |
-| Advanced developer | Recipe 03 - Build complex on-chain programs |
+| New to Solana | [Recipe 01: Passkey Wallet Basics](app/app/recipes/01-passkey-wallet-basics/README.md) - Understand wallet basics |
+| Familiar with Solana | [Recipe 02: Gasless USDC Transfer](app/app/recipes/02-gasless-transfer/README.md) - See how LazorKit simplifies your code |
+| Advanced developer | [Recipe 03: Subscription Service](app/app/recipes/03-subscription-service/README.md) - Build complex on-chain programs |
+
+**Smart Contract Developer?** Check out the [Anchor Program Documentation](program/subscription-program/README.md) for the Rust implementation.
 
 ---
 
@@ -258,6 +274,13 @@ Visit the deployed cookbook: **[https://lazorkit-cookbook.vercel.app/](https://l
 
 ## Resources
 
+### Cookbook Tutorials
+- [Recipe 01: Passkey Wallet Basics](app/app/recipes/01-passkey-wallet-basics/README.md)
+- [Recipe 02: Gasless USDC Transfer](app/app/recipes/02-gasless-transfer/README.md)
+- [Recipe 03: Subscription Service](app/app/recipes/03-subscription-service/README.md)
+- [Anchor Program Documentation](program/subscription-program/README.md)
+
+### External Documentation
 - **LazorKit Documentation**: [docs.lazorkit.com](https://docs.lazorkit.com/)
 - **LazorKit GitHub**: [github.com/lazor-kit/lazor-kit](https://github.com/lazor-kit/lazor-kit)
 - **Solana Documentation**: [docs.solana.com](https://docs.solana.com/)
