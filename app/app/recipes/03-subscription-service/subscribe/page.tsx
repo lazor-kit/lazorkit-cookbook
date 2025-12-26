@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useWallet } from '@lazorkit/wallet';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { PublicKey, Connection } from '@solana/web3.js';
+import { PublicKey } from '@solana/web3.js';
 import { buildInitializeSubscriptionIx, hasActiveSubscription } from '@/lib/program/subscription-service';
 import {
     calculateExpiryTimestamp,
@@ -14,16 +14,18 @@ import {
     getBadgeColorClasses,
     getGradientClasses, formatInterval
 } from '@/lib/constants';
+import { useLazorkitWalletConnect } from '@/hooks/useLazorkitWalletConnect';
+import { getConnection } from '@/lib/solana-utils';
 
 export default function SubscribePage() {
-    const { isConnected, wallet, signAndSendTransaction, connect } = useWallet();
+    const { signAndSendTransaction } = useWallet();
+    const { isConnected, wallet, connect, connecting } = useLazorkitWalletConnect();
     const router = useRouter();
     const [subscribing, setSubscribing] = useState(false);
     const [checking, setChecking] = useState(true);
     const [hasSubscription, setHasSubscription] = useState(false);
     const [showFeeInfo, setShowFeeInfo] = useState(false);
     const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
-    const [connecting, setConnecting] = useState(false);
     const [selectedExpiry, setSelectedExpiry] = useState<number>(12);
 
     const plans = getAllPlans();
@@ -41,7 +43,7 @@ export default function SubscribePage() {
 
         setChecking(true);
         try {
-            const connection = new Connection(SUBSCRIPTION_CONSTANTS.RPC_URL);
+            const connection = getConnection();
             const userWallet = new PublicKey(wallet.smartWallet);
             const hasActive = await hasActiveSubscription(userWallet, connection);
             setHasSubscription(hasActive);
@@ -50,21 +52,6 @@ export default function SubscribePage() {
             setHasSubscription(false);
         } finally {
             setChecking(false);
-        }
-    };
-
-    const handleConnect = async () => {
-        setConnecting(true);
-        try {
-            await connect();
-        } catch (err: any) {
-            if (err.message?.includes('popup') || err.message?.includes('blocked')) {
-                alert('🚫 Popup Blocked!\n\nPlease allow popups for this site.');
-            } else {
-                alert(`Failed to connect: ${err.message || 'Unknown error'}`);
-            }
-        } finally {
-            setConnecting(false);
         }
     };
 
@@ -81,7 +68,7 @@ export default function SubscribePage() {
 
         try {
             const userWallet = new PublicKey(wallet.smartWallet);
-            const connection = new Connection(SUBSCRIPTION_CONSTANTS.RPC_URL);
+            const connection = getConnection();
 
             console.log(`🚀 Creating ${plan.name} subscription with prepaid first payment...`);
             const expiresAt = calculateExpiryTimestamp(selectedExpiry)
@@ -174,7 +161,7 @@ export default function SubscribePage() {
                             Connect with Face ID to subscribe to a plan and start your subscription
                         </p>
                         <button
-                            onClick={handleConnect}
+                            onClick={connect}
                             disabled={connecting}
                             className="px-8 py-4 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white rounded-xl font-semibold transition-all shadow-lg shadow-purple-500/50 disabled:opacity-50"
                         >
@@ -367,12 +354,6 @@ export default function SubscribePage() {
                             </p>
                         </div>
                     ))}
-                </div>
-
-                <div className="text-center mt-12">
-                    <p className="text-gray-400 text-xs md:text-sm">
-                        {SUBSCRIPTION_CONSTANTS.NETWORK === 'devnet' ? '🧪 Running on Devnet' : ''}
-                    </p>
                 </div>
             </div>
         </div>

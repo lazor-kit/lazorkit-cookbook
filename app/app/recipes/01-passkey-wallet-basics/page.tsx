@@ -1,123 +1,45 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useWallet } from '@lazorkit/wallet';
-import { Connection, LAMPORTS_PER_SOL, PublicKey } from '@solana/web3.js';
+import { useState } from 'react';
+import { LAMPORTS_PER_SOL, PublicKey } from '@solana/web3.js';
 import Link from 'next/link';
-
-const RPC_URL = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com';
-const USDC_MINT = new PublicKey(process.env.NEXT_PUBLIC_USDC_MINT || '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU');
-
-function getAssociatedTokenAddressSync(
-    mint: PublicKey,
-    owner: PublicKey
-): PublicKey {
-    const [address] = PublicKey.findProgramAddressSync(
-        [
-            owner.toBuffer(),
-            new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA').toBuffer(),
-            mint.toBuffer()
-        ],
-        new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL')
-    );
-    return address;
-}
+import { useBalances } from '@/hooks/useBalances';
+import { useLazorkitWalletConnect } from '@/hooks/useLazorkitWalletConnect';
+import { getConnection } from '@/lib/solana-utils';
 
 export default function Recipe01Page() {
-  const { wallet, isConnected, connect, disconnect } = useWallet();
-  const [solBalance, setSolBalance] = useState<number | null>(null);
-  const [usdcBalance, setUsdcBalance] = useState<number | null>(null);
-  const [loading, setLoading] = useState(false);
+  const { wallet, isConnected, connect, disconnect, connecting } = useLazorkitWalletConnect();
   const [airdropping, setAirdropping] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
-    if (isConnected && wallet) {
-      fetchBalances();
-    } else {
-      setSolBalance(null);
-      setUsdcBalance(null);
-    }
-  }, [isConnected, wallet]);
-
-    const fetchBalances = async () => {
-        if (!wallet) return;
-        setRefreshing(true);
-        try {
-            const connection = new Connection(RPC_URL);
-            const publicKey = new PublicKey(wallet.smartWallet);
-
-            // Fetch SOL balance
-            const solBalanceLamports = await connection.getBalance(publicKey);
-            setSolBalance(solBalanceLamports / LAMPORTS_PER_SOL);
-
-            // Fetch USDC balance using the working method
-            try {
-                const userTokenAccount = getAssociatedTokenAddressSync(USDC_MINT, publicKey);
-                const accountInfo = await connection.getAccountInfo(userTokenAccount);
-
-                if (!accountInfo) {
-                    setUsdcBalance(0);
-                    return;
-                }
-
-                // Parse token account data (offset 64 = amount as 8 bytes)
-                const data = accountInfo.data;
-                const amount = Number(data.readBigUInt64LE(64));
-
-                setUsdcBalance(amount / 1_000_000);
-            } catch (err: any) {
-                console.error('USDC fetch error:', err);
-                setUsdcBalance(0);
-            }
-        } catch (err) {
-            console.error('Error fetching balances:', err);
-        } finally {
-            setRefreshing(false);
-        }
-    };
-
-  const handleConnect = async () => {
-    setLoading(true);
-    try {
-      await connect();
-    } catch (err: any) {
-      console.error('Connection error:', err);
-      
-      if (err.message?.includes('popup') || err.message?.includes('blocked')) {
-        alert(
-          '🚫 Popup Blocked!\n\n' +
-          'Please allow popups for this site in your browser settings.'
-        );
-      } else {
-        alert(`Failed to connect: ${err.message || 'Unknown error'}`);
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
+  const {
+    solBalance,
+    usdcBalance,
+    loading: refreshing,
+    fetchBalances,
+  } = useBalances(isConnected ? wallet?.smartWallet : null);
 
   const handleAirdrop = async () => {
     if (!wallet) return;
 
     setAirdropping(true);
     try {
-      const connection = new Connection(RPC_URL);
+      const connection = getConnection();
       const publicKey = new PublicKey(wallet.smartWallet);
-      
+
       const signature = await connection.requestAirdrop(publicKey, 1 * LAMPORTS_PER_SOL);
       await connection.confirmTransaction(signature);
-      
+
       alert('✅ Airdrop successful! You received 1 SOL');
       await fetchBalances();
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Airdrop error:', err);
+      const message = err instanceof Error ? err.message : 'Unknown error';
       alert(
         '❌ Airdrop failed!\n\n' +
         'Devnet faucets have rate limits. If this continues to fail, try:\n\n' +
-        '• https://faucet.solana.com (SOL)\n' +
-        '• https://faucet.circle.com (USDC)\n\n' +
-        `Error: ${err.message}`
+        'https://faucet.solana.com (SOL)\n' +
+        'https://faucet.circle.com (USDC)\n\n' +
+        `Error: ${message}`
       );
     } finally {
       setAirdropping(false);
@@ -251,11 +173,11 @@ function MyComponent() {
                     Click the button below to create a wallet using Face ID or Touch ID
                   </p>
                   <button
-                    onClick={handleConnect}
-                    disabled={loading}
+                    onClick={connect}
+                    disabled={connecting}
                     className="w-full md:w-auto px-6 md:px-8 py-3 md:py-4 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white rounded-xl font-semibold transition-all shadow-lg shadow-purple-500/50 disabled:opacity-50 text-sm md:text-base"
                   >
-                    {loading ? 'Creating Wallet...' : '🔑 Create Wallet with Passkey'}
+                    {connecting ? 'Creating Wallet...' : '🔑 Create Wallet with Passkey'}
                   </button>
 
                   <div className="mt-6 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">

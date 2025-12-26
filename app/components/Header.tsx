@@ -1,39 +1,23 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { useWallet } from '@lazorkit/wallet';
-import { Connection, LAMPORTS_PER_SOL, PublicKey } from '@solana/web3.js';
 import Link from 'next/link';
-
-const RPC_URL = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com';
-const USDC_MINT = new PublicKey(process.env.NEXT_PUBLIC_USDC_MINT || '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU');
-
-function getAssociatedTokenAddressSync(mint: PublicKey, owner: PublicKey): PublicKey {
-    const [address] = PublicKey.findProgramAddressSync(
-        [
-            owner.toBuffer(),
-            new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA').toBuffer(),
-            mint.toBuffer()
-        ],
-        new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL')
-    );
-    return address;
-}
+import { useBalances } from '@/hooks/useBalances';
+import { useLazorkitWalletConnect } from '@/hooks/useLazorkitWalletConnect';
+import { shortenAddress } from '@/lib/solana-utils';
 
 export default function Header() {
-    const { wallet, isConnected, disconnect, connect } = useWallet();
+    const { wallet, isConnected, connect, disconnect, connecting } = useLazorkitWalletConnect();
     const [showDropdown, setShowDropdown] = useState(false);
-    const [solBalance, setSolBalance] = useState<number | null>(null);
-    const [usdcBalance, setUsdcBalance] = useState<number | null>(null);
-    const [loading, setLoading] = useState(false);
-    const [connecting, setConnecting] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
 
-    useEffect(() => {
-        if (isConnected && wallet) {
-            fetchBalances();
-        }
-    }, [isConnected, wallet]);
+    const {
+        solBalance,
+        usdcBalance,
+        loading,
+        fetchBalances,
+        reset: resetBalances,
+    } = useBalances(isConnected ? wallet?.smartWallet : null);
 
     // Close dropdown when clicking outside
     useEffect(() => {
@@ -49,58 +33,10 @@ export default function Header() {
         }
     }, [showDropdown]);
 
-    const fetchBalances = async () => {
-        if (!wallet) return;
-
-        setLoading(true);
-        try {
-            const connection = new Connection(RPC_URL);
-            const publicKey = new PublicKey(wallet.smartWallet);
-
-            // Fetch SOL
-            const solLamports = await connection.getBalance(publicKey);
-            setSolBalance(solLamports / LAMPORTS_PER_SOL);
-
-            // Fetch USDC
-            try {
-                const tokenAccount = getAssociatedTokenAddressSync(USDC_MINT, publicKey);
-                const accountInfo = await connection.getAccountInfo(tokenAccount);
-                if (accountInfo) {
-                    const amount = Number(accountInfo.data.readBigUInt64LE(64));
-                    setUsdcBalance(amount / 1_000_000);
-                } else {
-                    setUsdcBalance(0);
-                }
-            } catch {
-                setUsdcBalance(0);
-            }
-        } catch (err) {
-            console.error('Error fetching balances:', err);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const handleConnect = async () => {
-        setConnecting(true);
-        try {
-            await connect();
-        } catch (err: any) {
-            if (err.message?.includes('popup') || err.message?.includes('blocked')) {
-                alert('🚫 Popup Blocked!\n\nPlease allow popups for this site.');
-            } else {
-                alert(`Failed to connect: ${err.message || 'Unknown error'}`);
-            }
-        } finally {
-            setConnecting(false);
-        }
-    };
-
     const handleDisconnect = () => {
         disconnect();
         setShowDropdown(false);
-        setSolBalance(null);
-        setUsdcBalance(null);
+        resetBalances();
     };
 
     return (
@@ -135,10 +71,10 @@ export default function Header() {
                             >
                                 <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
                                 <span className="text-white text-sm font-mono hidden sm:inline">
-                  {wallet.smartWallet.slice(0, 4)}...{wallet.smartWallet.slice(-4)}
+                  {shortenAddress(wallet.smartWallet)}
                 </span>
                                 <span className="text-white text-sm font-mono sm:hidden">
-                  {wallet.smartWallet.slice(0, 3)}...
+                  {shortenAddress(wallet.smartWallet, 3)}
                 </span>
                                 <svg
                                     className={`w-4 h-4 text-gray-400 transition-transform ${showDropdown ? 'rotate-180' : ''}`}
@@ -224,7 +160,7 @@ export default function Header() {
                         </div>
                         ) : (
                         <button
-                        onClick={handleConnect}
+                        onClick={connect}
                      disabled={connecting}
                      className="px-4 md:px-6 py-2 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white rounded-lg font-semibold transition-all text-sm shadow-lg shadow-purple-500/50 disabled:opacity-50"
                 >

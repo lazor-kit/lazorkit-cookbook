@@ -76,58 +76,40 @@ export default function RootLayout({ children }) {
 
 ---
 
-## Step 2: Import the useWallet Hook
+## Step 2: Import the Hooks
 
-The `useWallet` hook is your gateway to all wallet functionality:
+The cookbook provides custom hooks that wrap LazorKit's functionality with error handling and state management:
 
 ```typescript
 'use client';
 
-import { useWallet } from '@lazorkit/wallet';
-import { Connection, LAMPORTS_PER_SOL, PublicKey } from '@solana/web3.js';
-
-const RPC_URL = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com';
+import { useLazorkitWalletConnect } from '@/hooks/useLazorkitWalletConnect';
+import { useBalances } from '@/hooks/useBalances';
+import { getConnection } from '@/lib/solana-utils';
 ```
 
 ---
 
 ## Step 3: Connect with Passkey Authentication
 
-Use the `connect` function to create or access a wallet using Face ID/Touch ID:
+Use the `useLazorkitWalletConnect` hook to create or access a wallet using Face ID/Touch ID. This hook handles popup blocked errors and loading states automatically:
 
 ```typescript
 export default function WalletPage() {
-  const { wallet, isConnected, connect, disconnect } = useWallet();
-  const [loading, setLoading] = useState(false);
-
-  const handleConnect = async () => {
-    setLoading(true);
-    try {
-      await connect();
-    } catch (err: any) {
-      console.error('Connection error:', err);
-
-      // Handle popup blocked error
-      if (err.message?.includes('popup') || err.message?.includes('blocked')) {
-        alert(
-          'Popup Blocked!\n\n' +
-          'Please allow popups for this site in your browser settings.'
-        );
-      } else {
-        alert(`Failed to connect: ${err.message || 'Unknown error'}`);
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
+  const { wallet, isConnected, connect, connecting } = useLazorkitWalletConnect();
 
   return (
-    <button onClick={handleConnect} disabled={loading}>
-      {loading ? 'Creating Wallet...' : 'Create Wallet with Passkey'}
+    <button onClick={connect} disabled={connecting}>
+      {connecting ? 'Creating Wallet...' : 'Create Wallet with Passkey'}
     </button>
   );
 }
 ```
+
+The `useLazorkitWalletConnect` hook automatically handles:
+- Loading state management (`connecting`)
+- Popup blocked error detection and user alerts
+- Connection error handling
 
 **What happens when `connect()` is called:**
 1. LazorKit opens a portal window for passkey authentication
@@ -170,71 +152,53 @@ Once connected, access the wallet address via `wallet.smartWallet`:
 
 ## Step 5: Fetch Token Balances
 
-To fetch SOL and USDC balances, use the Solana Web3.js library:
+Use the `useBalances` hook to automatically fetch and manage SOL and USDC balances:
 
 ```typescript
-const USDC_MINT = new PublicKey(
-  process.env.NEXT_PUBLIC_USDC_MINT || '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU'
-);
+export default function WalletPage() {
+  const { wallet, isConnected } = useLazorkitWalletConnect();
 
-// Helper function to derive Associated Token Address
-function getAssociatedTokenAddressSync(mint: PublicKey, owner: PublicKey): PublicKey {
-  const [address] = PublicKey.findProgramAddressSync(
-    [
-      owner.toBuffer(),
-      new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA').toBuffer(),
-      mint.toBuffer()
-    ],
-    new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL')
+  // Automatically fetches balances when wallet connects
+  const {
+    solBalance,
+    usdcBalance,
+    loading: refreshing,
+    fetchBalances,
+  } = useBalances(isConnected ? wallet?.smartWallet : null);
+
+  return (
+    <div>
+      <p>SOL: {solBalance?.toFixed(4) ?? 'Loading...'}</p>
+      <p>USDC: {usdcBalance?.toFixed(2) ?? 'Loading...'}</p>
+      <button onClick={fetchBalances} disabled={refreshing}>
+        {refreshing ? 'Refreshing...' : 'Refresh Balances'}
+      </button>
+    </div>
   );
-  return address;
 }
-
-const fetchBalances = async () => {
-  if (!wallet) return;
-
-  try {
-    const connection = new Connection(RPC_URL);
-    const publicKey = new PublicKey(wallet.smartWallet);
-
-    // Fetch SOL balance
-    const solBalanceLamports = await connection.getBalance(publicKey);
-    const solBalance = solBalanceLamports / LAMPORTS_PER_SOL;
-    console.log('SOL Balance:', solBalance);
-
-    // Fetch USDC balance
-    const userTokenAccount = getAssociatedTokenAddressSync(USDC_MINT, publicKey);
-    const accountInfo = await connection.getAccountInfo(userTokenAccount);
-
-    if (!accountInfo) {
-      console.log('No USDC token account - balance is 0');
-      return;
-    }
-
-    // Parse token account data (offset 64 = amount as 8 bytes)
-    const data = accountInfo.data;
-    const amount = Number(data.readBigUInt64LE(64));
-    const usdcBalance = amount / 1_000_000; // USDC has 6 decimals
-
-    console.log('USDC Balance:', usdcBalance);
-  } catch (err) {
-    console.error('Error fetching balances:', err);
-  }
-};
 ```
+
+The `useBalances` hook provides:
+- Automatic balance fetching on wallet connection
+- `fetchBalances()` function for manual refresh
+- Loading states and error handling
+- Cached connection for better performance
 
 ---
 
 ## Step 6: Request Devnet Airdrops
 
-For testing, you can request SOL from the devnet faucet:
+For testing, you can request SOL from the devnet faucet using the shared connection:
 
 ```typescript
+import { LAMPORTS_PER_SOL, PublicKey } from '@solana/web3.js';
+import { getConnection } from '@/lib/solana-utils';
+
 const handleAirdrop = async () => {
   if (!wallet) return;
 
   try {
-    const connection = new Connection(RPC_URL);
+    const connection = getConnection();
     const publicKey = new PublicKey(wallet.smartWallet);
 
     // Request 1 SOL airdrop
@@ -243,15 +207,17 @@ const handleAirdrop = async () => {
 
     alert('Airdrop successful! You received 1 SOL');
 
-    // Refresh balances
+    // Refresh balances using the hook
     await fetchBalances();
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Airdrop error:', err);
+    const message = err instanceof Error ? err.message : 'Unknown error';
     alert(
       'Airdrop failed!\n\n' +
       'Devnet faucets have rate limits. Try:\n' +
       '- https://faucet.solana.com (SOL)\n' +
-      '- https://faucet.circle.com (USDC)'
+      '- https://faucet.circle.com (USDC)\n\n' +
+      `Error: ${message}`
     );
   }
 };
@@ -273,32 +239,41 @@ Allow users to disconnect their wallet:
 
 ## Complete Example
 
-The complete implementation includes wallet connection, balance fetching, and airdrop functionality.
+The complete implementation uses the centralized hooks and utilities for clean, maintainable code.
 
-**Core Functions:**
+**Custom Hooks Used:**
+
+| Hook | Description |
+|----------|-------------|
+| `useLazorkitWalletConnect()` | Handles wallet connection with popup error handling |
+| `useBalances()` | Fetches and manages SOL/USDC balances automatically |
+
+**Utility Functions:**
 
 | Function | Description |
 |----------|-------------|
-| `handleConnect()` | Initiates passkey authentication via `connect()` |
-| `fetchBalances()` | Fetches SOL and USDC balances using Solana Web3.js |
-| `handleAirdrop()` | Requests devnet SOL airdrop for testing |
-| `getAssociatedTokenAddressSync()` | Derives the user's USDC token account address |
+| `getConnection()` | Returns a cached Solana connection instance |
+| `getAssociatedTokenAddressSync()` | Derives token account addresses |
 
 **Key Pattern - Wallet Connection:**
 
 ```typescript
-const { wallet, isConnected, connect, disconnect } = useWallet();
+import { useLazorkitWalletConnect } from '@/hooks/useLazorkitWalletConnect';
+import { useBalances } from '@/hooks/useBalances';
 
-const handleConnect = async () => {
-  try {
-    await connect();  // Opens LazorKit portal for passkey auth
-  } catch (err) {
-    // Handle popup blocked or connection errors
-  }
-};
+export default function WalletPage() {
+  const { wallet, isConnected, connect, connecting } = useLazorkitWalletConnect();
 
-// After connection, access wallet address:
-const walletAddress = wallet?.smartWallet;
+  const { solBalance, usdcBalance, fetchBalances } = useBalances(
+    isConnected ? wallet?.smartWallet : null
+  );
+
+  return (
+    <button onClick={connect} disabled={connecting}>
+      {connecting ? 'Connecting...' : 'Connect with Passkey'}
+    </button>
+  );
+}
 ```
 
 > **Source**: See the full implementation at [`page.tsx`](page.tsx)
@@ -336,7 +311,8 @@ Unlike traditional Solana wallets (Phantom, Solflare), LazorKit doesn't require 
 
 Now that you understand wallet basics, proceed to:
 
-**[Recipe 02: Gasless USDC Transfer](../02-gasless-transfer/README.md)** - Learn how to send tokens without paying gas fees!
+- **[Recipe 02: Gasless USDC Transfer](../02-gasless-transfer/README.md)** - Learn how to send tokens without paying gas fees!
+- **[Recipe 04: Gasless Raydium Swap](../04-gasless-raydium-swap/README.md)** - Swap tokens on Raydium DEX without gas fees!
 
 ---
 

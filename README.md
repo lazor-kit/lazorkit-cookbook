@@ -43,6 +43,7 @@ This project demonstrates that you can build sophisticated Solana applications (
 | [01: Passkey Wallet Basics](app/app/recipes/01-passkey-wallet-basics) | Create wallets with Face ID, check balances | Beginner | [Read Tutorial](app/app/recipes/01-passkey-wallet-basics/README.md) |
 | [02: Gasless USDC Transfer](app/app/recipes/02-gasless-transfer) | Send tokens without paying gas fees | Intermediate | [Read Tutorial](app/app/recipes/02-gasless-transfer/README.md) |
 | [03: Subscription Service](app/app/recipes/03-subscription-service) | Automated recurring USDC payments on Solana | Advanced | [Read Tutorial](app/app/recipes/03-subscription-service/README.md) |
+| [04: Gasless Raydium Swap](app/app/recipes/04-gasless-raydium-swap) | DEX token swaps without gas fees | Advanced | [Read Tutorial](app/app/recipes/04-gasless-raydium-swap/README.md) |
 
 **Anchor Program**: Custom smart contract powering the subscription service. [Read Documentation](program/subscription-program/README.md)
 
@@ -117,10 +118,13 @@ lazorkit-cookbook/
 │   │   │   ├── 02-gasless-transfer/        # Recipe 02 (has README.md tutorial)
 │   │   │   │   ├── page.tsx
 │   │   │   │   └── README.md               # 📖 Tutorial: Gasless USDC Transfer
-│   │   │   └── 03-subscription-service/    # Recipe 03 (has README.md tutorial)
-│   │   │       ├── subscribe/page.tsx      # Plan selection & subscribe
-│   │   │       ├── dashboard/page.tsx      # Manage subscription
-│   │   │       └── README.md               # 📖 Tutorial: Subscription Service
+│   │   │   ├── 03-subscription-service/    # Recipe 03 (has README.md tutorial)
+│   │   │   │   ├── subscribe/page.tsx      # Plan selection & subscribe
+│   │   │   │   ├── dashboard/page.tsx      # Manage subscription
+│   │   │   │   └── README.md               # 📖 Tutorial: Subscription Service
+│   │   │   └── 04-gasless-raydium-swap/    # Recipe 04 (has README.md tutorial)
+│   │   │       ├── page.tsx                # DEX swap interface
+│   │   │       └── README.md               # 📖 Tutorial: Gasless Raydium Swap
 │   │   ├── api/
 │   │   │   └── charge-subscriptions/       # Backend recurring charge job
 │   │   │       └── route.ts
@@ -128,10 +132,13 @@ lazorkit-cookbook/
 │   │   └── layout.tsx                      # Root layout with providers
 │   ├── components/
 │   │   ├── Header.tsx                      # Navigation with wallet info
-│   │   ├── Footer.tsx                      # Links and attribution
-│   │   └── WalletButton.tsx                # Wallet connection button
+│   │   └── Footer.tsx                      # Links and attribution
+│   ├── hooks/
+│   │   ├── useBalances.ts                  # SOL/USDC balance fetching hook
+│   │   └── useLazorkitWalletConnect.ts      # Wallet connection with error handling
 │   ├── lib/
 │   │   ├── constants.ts                    # Subscription plans & config
+│   │   ├── solana-utils.ts                 # Shared Solana utilities
 │   │   └── program/
 │   │       └── subscription-service.ts     # On-chain program helpers
 │   ├── providers/
@@ -155,6 +162,7 @@ lazorkit-cookbook/
 | [Recipe 01 Tutorial](app/app/recipes/01-passkey-wallet-basics/README.md) | Passkey authentication & wallet basics |
 | [Recipe 02 Tutorial](app/app/recipes/02-gasless-transfer/README.md) | Gasless USDC transfers with paymaster |
 | [Recipe 03 Tutorial](app/app/recipes/03-subscription-service/README.md) | Subscription billing system |
+| [Recipe 04 Tutorial](app/app/recipes/04-gasless-raydium-swap/README.md) | Gasless DEX swaps with Raydium |
 | [Anchor Program Docs](program/subscription-program/README.md) | Smart contract implementation |
 
 ---
@@ -180,14 +188,14 @@ lazorkit-cookbook/
 Create wallets using WebAuthn (Face ID/Touch ID) - no seed phrases, no browser extensions.
 
 ```typescript
-import { useWallet } from '@lazorkit/wallet';
+import { useLazorkitWalletConnect } from '@/hooks/useLazorkitWalletConnect';
 
 function WalletButton() {
-  const { wallet, connect, disconnect, isConnected } = useWallet();
+  const { wallet, connect, isConnected, connecting } = useLazorkitWalletConnect();
 
   return (
-    <button onClick={connect}>
-      {isConnected ? wallet?.smartWallet : 'Connect with Face ID'}
+    <button onClick={connect} disabled={connecting}>
+      {connecting ? 'Connecting...' : isConnected ? wallet?.smartWallet : 'Connect with Face ID'}
     </button>
   );
 }
@@ -264,6 +272,7 @@ export function LazorkitProvider({ children }) {
 |---------------|---------------|
 | New to Solana | [Recipe 01: Passkey Wallet Basics](app/app/recipes/01-passkey-wallet-basics/README.md) - Understand wallet basics |
 | Familiar with Solana | [Recipe 02: Gasless USDC Transfer](app/app/recipes/02-gasless-transfer/README.md) - See how LazorKit simplifies your code |
+| DeFi enthusiast | [Recipe 04: Gasless Raydium Swap](app/app/recipes/04-gasless-raydium-swap/README.md) - DEX swaps without gas fees |
 | Advanced developer | [Recipe 03: Subscription Service](app/app/recipes/03-subscription-service/README.md) - Build complex on-chain programs |
 
 **Smart Contract Developer?** Check out the [Anchor Program Documentation](program/subscription-program/README.md) for the Rust implementation.
@@ -288,6 +297,7 @@ Visit the deployed cookbook: **[https://lazorkit-cookbook.vercel.app/](https://l
 - [Recipe 01: Passkey Wallet Basics](app/app/recipes/01-passkey-wallet-basics/README.md)
 - [Recipe 02: Gasless USDC Transfer](app/app/recipes/02-gasless-transfer/README.md)
 - [Recipe 03: Subscription Service](app/app/recipes/03-subscription-service/README.md)
+- [Recipe 04: Gasless Raydium Swap](app/app/recipes/04-gasless-raydium-swap/README.md)
 - [Anchor Program Documentation](program/subscription-program/README.md)
 
 ### External Documentation
@@ -303,10 +313,11 @@ Visit the deployed cookbook: **[https://lazorkit-cookbook.vercel.app/](https://l
 This cookbook was created for the [**Superteam x LazorKit Bounty**](https://earn.superteam.fun/listing/integrate-passkey-technology-with-lazorkit-to-10x-solana-ux).
 
 **Deliverables:**
-- Working example repository with 3 recipes
+- Working example repository with 4 recipes
 - Step-by-step tutorials for each recipe
 - Live demo deployed on Solana Devnet
 - Custom Anchor program for subscription billing
+- Raydium DEX integration for gasless token swaps
 
 ---
 

@@ -175,28 +175,37 @@ const [subscriptionPDA] = PublicKey.findProgramAddressSync(
 
 ## Step 3: Create the Subscribe Page
 
-The subscribe page displays available plans and handles the subscription creation flow.
+The subscribe page displays available plans and handles the subscription creation flow using centralized hooks.
 
 **Key Pattern - Creating a Subscription:**
 
 ```typescript
-const { signAndSendTransaction } = useWallet();
+import { useWallet } from '@lazorkit/wallet';
+import { useLazorkitWalletConnect } from '@/hooks/useLazorkitWalletConnect';
+import { getConnection } from '@/lib/solana-utils';
 
-const handleSubscribe = async (plan: PlanFeatures) => {
-  // Build subscription instructions
-  const instructions = await buildInitializeSubscriptionIx({
-    userWallet,
-    amountPerPeriod: plan.price,
-    intervalSeconds: plan.interval,
-    expiresAt,
-  }, connection);
+export default function SubscribePage() {
+  const { signAndSendTransaction } = useWallet();
+  const { wallet, isConnected, connect, connecting } = useLazorkitWalletConnect();
 
-  // Send gasless transaction - first payment charged immediately
-  const signature = await signAndSendTransaction({
-    instructions,
-    transactionOptions: { computeUnitLimit: 600_000 }
-  });
-};
+  const handleSubscribe = async (plan: PlanFeatures) => {
+    const connection = getConnection();
+
+    // Build subscription instructions
+    const instructions = await buildInitializeSubscriptionIx({
+      userWallet,
+      amountPerPeriod: plan.price,
+      intervalSeconds: plan.interval,
+      expiresAt,
+    }, connection);
+
+    // Send gasless transaction - first payment charged immediately
+    const signature = await signAndSendTransaction({
+      instructions,
+      transactionOptions: { computeUnitLimit: 600_000 }
+    });
+  };
+}
 ```
 
 > **Source**: See the full subscribe page at [`subscribe/page.tsx`](subscribe/page.tsx)
@@ -337,6 +346,7 @@ Try this recipe live at: [https://lazorkit-cookbook.vercel.app/recipes/03-subscr
 ## Next Steps
 
 - Explore the [Anchor Program Documentation](../../../../program/subscription-program/README.md)
+- Try [Recipe 04: Gasless Raydium Swap](../04-gasless-raydium-swap/README.md) - DEX integration!
 - Learn about [LazorKit SDK](https://docs.lazorkit.com/)
 - Build your own subscription-based dApp!
 

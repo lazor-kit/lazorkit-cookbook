@@ -66,30 +66,40 @@ npm install @lazorkit/wallet @solana/web3.js @solana/spl-token
 ```typescript
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useWallet } from '@lazorkit/wallet';
-import { Connection, PublicKey, TransactionInstruction } from '@solana/web3.js';
+import { PublicKey, TransactionInstruction } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID, createTransferInstruction } from '@solana/spl-token';
-
-const RPC_URL = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com';
-const USDC_MINT = new PublicKey(
-  process.env.NEXT_PUBLIC_USDC_MINT || '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU'
-);
+import { useLazorkitWalletConnect } from '@/hooks/useLazorkitWalletConnect';
+import { useBalances } from '@/hooks/useBalances';
+import {
+  getAssociatedTokenAddressSync,
+  getConnection,
+  USDC_MINT,
+  formatTransactionError
+} from '@/lib/solana-utils';
 ```
 
 ---
 
-## Step 2: Set Up the Wallet Hook
+## Step 2: Set Up the Hooks
 
-Get the `signAndSendTransaction` function from LazorKit:
+Use the centralized hooks for wallet connection and balance management:
 
 ```typescript
 export default function Recipe02Page() {
-  const { wallet, isConnected, connect, signAndSendTransaction } = useWallet();
+  const { signAndSendTransaction } = useWallet();
+  const { wallet, isConnected, connect, connecting } = useLazorkitWalletConnect();
+  const [sending, setSending] = useState(false);
   const [recipient, setRecipient] = useState('');
   const [amount, setAmount] = useState('');
-  const [sending, setSending] = useState(false);
   const [lastTxSignature, setLastTxSignature] = useState('');
+
+  const {
+    usdcBalance,
+    loading: refreshing,
+    fetchBalances: fetchBalance,
+  } = useBalances(isConnected ? wallet?.smartWallet : null);
 
   // ... rest of component
 }
@@ -97,29 +107,24 @@ export default function Recipe02Page() {
 
 ---
 
-## Step 3: Derive Associated Token Addresses
+## Step 3: Token Utilities
 
-SPL tokens are stored in Associated Token Accounts (ATAs). Here's how to derive them:
+The `solana-utils.ts` file provides utilities for working with SPL tokens:
 
 ```typescript
-function getAssociatedTokenAddressSync(mint: PublicKey, owner: PublicKey): PublicKey {
-  const [address] = PublicKey.findProgramAddressSync(
-    [
-      owner.toBuffer(),
-      TOKEN_PROGRAM_ID.toBuffer(),
-      mint.toBuffer()
-    ],
-    new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL')
-  );
-  return address;
-}
+// Already available from @/lib/solana-utils
+import { getAssociatedTokenAddressSync, USDC_MINT } from '@/lib/solana-utils';
+
+// Derive sender and recipient token accounts
+const senderTokenAccount = getAssociatedTokenAddressSync(USDC_MINT, senderPubkey);
+const recipientTokenAccount = getAssociatedTokenAddressSync(USDC_MINT, recipientPubkey);
 ```
 
 ---
 
 ## Step 4: Build the Transfer Function
 
-Here's the complete gasless transfer implementation:
+Here's the complete gasless transfer implementation using the centralized utilities:
 
 ```typescript
 const handleSend = async () => {
@@ -146,10 +151,10 @@ const handleSend = async () => {
 
   setSending(true);
   try {
-    const connection = new Connection(RPC_URL);
+    const connection = getConnection();  // Use cached connection
     const senderPubkey = new PublicKey(wallet.smartWallet);
 
-    // Derive token accounts
+    // Derive token accounts using utility function
     const senderTokenAccount = getAssociatedTokenAddressSync(USDC_MINT, senderPubkey);
     const recipientTokenAccount = getAssociatedTokenAddressSync(USDC_MINT, recipientPubkey);
 
@@ -186,16 +191,12 @@ const handleSend = async () => {
     instructions.push(transferIx);
 
     // Send gasless transaction
-    console.log('Sending gasless transaction...');
     const signature = await signAndSendTransaction({
       instructions,
       transactionOptions: { computeUnitLimit: 200_000 }
     });
 
-    console.log('Transaction signature:', signature);
     setLastTxSignature(signature);
-
-    // Wait for confirmation
     await connection.confirmTransaction(signature, 'confirmed');
 
     alert(
@@ -205,12 +206,13 @@ const handleSend = async () => {
       `No gas fees paid!`
     );
 
-    // Reset form
+    // Reset form and refresh balance
     setRecipient('');
     setAmount('');
-  } catch (err: any) {
+    await fetchBalance();
+  } catch (err: unknown) {
     console.error('Transfer error:', err);
-    alert(`Transfer failed:\n\n${err.message || err}`);
+    alert(formatTransactionError(err, 'Transfer'));  // User-friendly error message
   } finally {
     setSending(false);
   }
@@ -380,9 +382,10 @@ We set `computeUnitLimit: 200_000` to ensure enough compute budget for complex t
 
 ## Next Steps
 
-Ready for advanced features? Proceed to:
+Ready for more advanced features? Proceed to:
 
-**[Recipe 03: Subscription Service](../03-subscription-service/README.md)** - Build automated recurring payments with token delegation!
+- **[Recipe 03: Subscription Service](../03-subscription-service/README.md)** - Build automated recurring payments with token delegation!
+- **[Recipe 04: Gasless Raydium Swap](../04-gasless-raydium-swap/README.md)** - Swap tokens on Raydium DEX without gas fees!
 
 ---
 

@@ -1,85 +1,27 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useWallet } from '@lazorkit/wallet';
-import { Connection, PublicKey, TransactionInstruction } from '@solana/web3.js';
+import { PublicKey, TransactionInstruction } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID, createTransferInstruction } from '@solana/spl-token';
 import Link from 'next/link';
-
-const RPC_URL = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com';
-const USDC_MINT = new PublicKey(process.env.NEXT_PUBLIC_USDC_MINT || '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU');
-
-function getAssociatedTokenAddressSync(mint: PublicKey, owner: PublicKey): PublicKey {
-  const [address] = PublicKey.findProgramAddressSync(
-    [
-      owner.toBuffer(),
-      TOKEN_PROGRAM_ID.toBuffer(),
-      mint.toBuffer()
-    ],
-    new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL')
-  );
-  return address;
-}
+import { useBalances } from '@/hooks/useBalances';
+import { useLazorkitWalletConnect } from '@/hooks/useLazorkitWalletConnect';
+import { getAssociatedTokenAddressSync, getConnection, USDC_MINT, formatTransactionError } from '@/lib/solana-utils';
 
 export default function Recipe02Page() {
-  const { wallet, isConnected, connect, disconnect, signAndSendTransaction } = useWallet();
-  const [usdcBalance, setUsdcBalance] = useState<number | null>(null);
-  const [loading, setLoading] = useState(false);
+  const { signAndSendTransaction } = useWallet();
+  const { wallet, isConnected, connect, connecting } = useLazorkitWalletConnect();
   const [sending, setSending] = useState(false);
   const [recipient, setRecipient] = useState('');
   const [amount, setAmount] = useState('');
   const [lastTxSignature, setLastTxSignature] = useState('');
-  const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
-    if (isConnected && wallet) {
-      fetchBalance();
-    } else {
-      setUsdcBalance(null);
-    }
-  }, [isConnected, wallet]);
-
-  const fetchBalance = async () => {
-    if (!wallet) return;
-
-    setRefreshing(true);
-    try {
-      const connection = new Connection(RPC_URL);
-      const publicKey = new PublicKey(wallet.smartWallet);
-      const userTokenAccount = getAssociatedTokenAddressSync(USDC_MINT, publicKey);
-      const accountInfo = await connection.getAccountInfo(userTokenAccount);
-
-      if (!accountInfo) {
-        setUsdcBalance(0);
-        return;
-      }
-
-      const data = accountInfo.data;
-      const amountRaw = Number(data.readBigUInt64LE(64));
-      setUsdcBalance(amountRaw / 1_000_000);
-    } catch (err) {
-      console.error('Error fetching balance:', err);
-      setUsdcBalance(0);
-    } finally {
-      setRefreshing(false);
-    }
-  };
-
-  const handleConnect = async () => {
-    setLoading(true);
-    try {
-      await connect();
-    } catch (err: any) {
-      console.error('Connection error:', err);
-      if (err.message?.includes('popup') || err.message?.includes('blocked')) {
-        alert('🚫 Popup Blocked!\n\nPlease allow popups for this site.');
-      } else {
-        alert(`Failed to connect: ${err.message || 'Unknown error'}`);
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
+  const {
+    usdcBalance,
+    loading: refreshing,
+    fetchBalances: fetchBalance,
+  } = useBalances(isConnected ? wallet?.smartWallet : null);
 
   const handleSend = async () => {
     if (!wallet || !recipient || !amount) {
@@ -108,7 +50,7 @@ export default function Recipe02Page() {
 
     setSending(true);
     try {
-      const connection = new Connection(RPC_URL);
+      const connection = getConnection();
       const senderPubkey = new PublicKey(wallet.smartWallet);
 
       const senderTokenAccount = getAssociatedTokenAddressSync(USDC_MINT, senderPubkey);
@@ -164,9 +106,9 @@ export default function Recipe02Page() {
       setRecipient('');
       setAmount('');
       await fetchBalance();
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('❌ Transfer error:', err);
-      alert(`Transfer failed:\n\n${err.message || err}`);
+      alert(formatTransactionError(err, 'Transfer'));
     } finally {
       setSending(false);
     }
@@ -330,11 +272,11 @@ const signature = await signAndSendTransaction({
                     Connect with Face ID to start sending gasless USDC transfers
                   </p>
                   <button
-                    onClick={handleConnect}
-                    disabled={loading}
+                    onClick={connect}
+                    disabled={connecting}
                     className="w-full px-8 py-4 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white rounded-xl font-semibold transition-all shadow-lg shadow-purple-500/50 disabled:opacity-50"
                   >
-                    {loading ? 'Connecting...' : '🔑 Connect Wallet'}
+                    {connecting ? 'Connecting...' : '🔑 Connect Wallet'}
                   </button>
                 </div>
               ) : (

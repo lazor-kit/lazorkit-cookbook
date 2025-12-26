@@ -4,16 +4,17 @@ import { useEffect, useState } from 'react';
 import { useWallet } from '@lazorkit/wallet';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { PublicKey, Connection } from '@solana/web3.js';
+import { PublicKey } from '@solana/web3.js';
 import {
-    getSubscriptionPDA, buildCancelSubscriptionIx, MERCHANT_WALLET,
-    SUBSCRIPTION_PROGRAM_ID
+    getSubscriptionPDA, buildCancelSubscriptionIx, MERCHANT_WALLET
 } from '@/lib/program/subscription-service';
 import {
     SUBSCRIPTION_CONSTANTS,
     getPlanById,
     formatInterval
 } from '@/lib/constants';
+import { useLazorkitWalletConnect } from '@/hooks/useLazorkitWalletConnect';
+import { getConnection } from '@/lib/solana-utils';
 
 interface SubscriptionData {
     authority: string;
@@ -32,7 +33,8 @@ interface SubscriptionData {
 }
 
 export default function DashboardPage() {
-    const { isConnected, wallet, signAndSendTransaction, connect } = useWallet();
+    const { signAndSendTransaction } = useWallet();
+    const { isConnected, wallet, connect, connecting } = useLazorkitWalletConnect();
     const router = useRouter();
     const [hasSubscription, setHasSubscription] = useState(false);
     const [loading, setLoading] = useState(true);
@@ -42,7 +44,6 @@ export default function DashboardPage() {
     const [subscriptionData, setSubscriptionData] = useState<SubscriptionData | null>(null);
     const [lastTriggerTime, setLastTriggerTime] = useState<number>(0);
     const [cooldownRemaining, setCooldownRemaining] = useState<number>(0);
-    const [connecting, setConnecting] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
 
     useEffect(() => {
@@ -137,7 +138,7 @@ export default function DashboardPage() {
         setRefreshing(true);
         setLoading(true);
         try {
-            const connection = new Connection(SUBSCRIPTION_CONSTANTS.RPC_URL);
+            const connection = getConnection();
             const userWallet = new PublicKey(wallet.smartWallet);
             const [subscriptionPDA] = getSubscriptionPDA(userWallet, MERCHANT_WALLET);
 
@@ -165,21 +166,6 @@ export default function DashboardPage() {
         } finally {
             setLoading(false);
             setRefreshing(false);
-        }
-    };
-
-    const handleConnect = async () => {
-        setConnecting(true);
-        try {
-            await connect();
-        } catch (err: any) {
-            if (err.message?.includes('popup') || err.message?.includes('blocked')) {
-                alert('🚫 Popup Blocked!\n\nPlease allow popups for this site.');
-            } else {
-                alert(`Failed to connect: ${err.message || 'Unknown error'}`);
-            }
-        } finally {
-            setConnecting(false);
         }
     };
 
@@ -344,7 +330,7 @@ export default function DashboardPage() {
                             Connect with Face ID to view your subscription dashboard
                         </p>
                         <button
-                            onClick={handleConnect}
+                            onClick={connect}
                             disabled={connecting}
                             className="px-8 py-4 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white rounded-xl font-semibold transition-all shadow-lg shadow-purple-500/50 disabled:opacity-50"
                         >
