@@ -66,17 +66,19 @@ npm install @lazorkit/wallet @solana/web3.js @solana/spl-token
 ```typescript
 'use client';
 
-import { useState } from 'react';
 import { useWallet } from '@lazorkit/wallet';
-import { PublicKey, TransactionInstruction } from '@solana/web3.js';
-import { TOKEN_PROGRAM_ID, createTransferInstruction } from '@solana/spl-token';
+import { PublicKey } from '@solana/web3.js';
 import { useLazorkitWalletConnect } from '@/hooks/useLazorkitWalletConnect';
 import { useBalances } from '@/hooks/useBalances';
+import { useTransferForm } from '@/hooks/useTransferForm';
 import {
-  getAssociatedTokenAddressSync,
   getConnection,
-  USDC_MINT,
-  formatTransactionError
+  buildUsdcTransferInstructions,
+  formatTransactionError,
+  withRetry,
+  validateRecipientAddress,
+  validateTransferAmount,
+  createTransferSuccessMessage,
 } from '@/lib/solana-utils';
 ```
 
@@ -84,17 +86,24 @@ import {
 
 ## Step 2: Set Up the Hooks
 
-Use the centralized hooks for wallet connection and balance management:
+Use the centralized hooks for wallet connection, balance management, and transfer form state:
 
 ```typescript
 export default function Recipe02Page() {
   const { signAndSendTransaction } = useWallet();
   const { wallet, isConnected, connect, connecting } = useLazorkitWalletConnect();
-  const [sending, setSending] = useState(false);
-  const [recipient, setRecipient] = useState('');
-  const [amount, setAmount] = useState('');
-  const [lastTxSignature, setLastTxSignature] = useState('');
 
+  // Transfer form state management
+  const {
+    recipient, setRecipient,
+    amount, setAmount,
+    sending,
+    retryCount, setRetryCount,
+    lastTxSignature, setLastTxSignature,
+    resetForm, startSending, stopSending,
+  } = useTransferForm();
+
+  // Balance management
   const {
     usdcBalance,
     loading: refreshing,
@@ -104,6 +113,11 @@ export default function Recipe02Page() {
   // ... rest of component
 }
 ```
+
+The `useTransferForm` hook provides:
+- Form state (`recipient`, `amount`, `lastTxSignature`)
+- Loading states (`sending`, `retryCount`)
+- Helper functions (`resetForm`, `startSending`, `stopSending`)
 
 ---
 
@@ -124,7 +138,7 @@ const recipientTokenAccount = getAssociatedTokenAddressSync(USDC_MINT, recipient
 
 ## Step 4: Build the Transfer Function
 
-Here's the complete gasless transfer implementation using the centralized utilities:
+Here's the complete gasless transfer implementation using the centralized utilities and validation functions:
 
 ```typescript
 const handleSend = async () => {
@@ -133,91 +147,77 @@ const handleSend = async () => {
     return;
   }
 
-  // Validate recipient address
-  let recipientPubkey: PublicKey;
-  try {
-    recipientPubkey = new PublicKey(recipient);
-  } catch (err) {
-    alert('Invalid recipient address');
+  // Validate recipient address using utility function
+  const recipientValidation = validateRecipientAddress(recipient);
+  if (!recipientValidation.valid) {
+    alert(recipientValidation.error);
     return;
   }
 
-  // Validate amount
-  const amountNum = parseFloat(amount);
-  if (isNaN(amountNum) || amountNum <= 0) {
-    alert('Invalid amount');
+  // Validate amount against balance
+  const amountValidation = validateTransferAmount(amount, usdcBalance);
+  if (!amountValidation.valid) {
+    alert(amountValidation.error);
     return;
   }
 
-  setSending(true);
+  startSending();  // Sets sending=true, retryCount=0
+
   try {
-    const connection = getConnection();  // Use cached connection
-    const senderPubkey = new PublicKey(wallet.smartWallet);
+    const signature = await withRetry(
+      async () => {
+        const connection = getConnection();
+        const senderPubkey = new PublicKey(wallet.smartWallet);
 
-    // Derive token accounts using utility function
-    const senderTokenAccount = getAssociatedTokenAddressSync(USDC_MINT, senderPubkey);
-    const recipientTokenAccount = getAssociatedTokenAddressSync(USDC_MINT, recipientPubkey);
+        // Build transfer instructions (handles ATA creation automatically)
+        const instructions = await buildUsdcTransferInstructions(
+          connection,
+          senderPubkey,
+          recipientValidation.address!,
+          amountValidation.amountNum!
+        );
 
-    // Check if recipient token account exists
-    const recipientAccountInfo = await connection.getAccountInfo(recipientTokenAccount);
-    const instructions: TransactionInstruction[] = [];
+        // Send gasless transaction
+        const sig = await signAndSendTransaction({
+          instructions,
+          transactionOptions: { computeUnitLimit: 200_000 }
+        });
 
-    // If recipient doesn't have a token account, create one
-    if (!recipientAccountInfo) {
-      const createAccountIx = new TransactionInstruction({
-        keys: [
-          { pubkey: senderPubkey, isSigner: true, isWritable: true },
-          { pubkey: recipientTokenAccount, isSigner: false, isWritable: true },
-          { pubkey: recipientPubkey, isSigner: false, isWritable: false },
-          { pubkey: USDC_MINT, isSigner: false, isWritable: false },
-          { pubkey: new PublicKey('11111111111111111111111111111111'), isSigner: false, isWritable: false },
-          { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
-        ],
-        programId: new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL'),
-        data: Buffer.from([]),
-      });
-      instructions.push(createAccountIx);
-    }
-
-    // Build transfer instruction
-    const transferIx = createTransferInstruction(
-      senderTokenAccount,
-      recipientTokenAccount,
-      senderPubkey,
-      amountNum * 1_000_000, // USDC has 6 decimals
-      [],
-      TOKEN_PROGRAM_ID
+        await connection.confirmTransaction(sig, 'confirmed');
+        return sig;
+      },
+      {
+        maxRetries: 3,
+        initialDelayMs: 1000,
+        onRetry: (attempt) => setRetryCount(attempt)
+      }
     );
-    instructions.push(transferIx);
-
-    // Send gasless transaction
-    const signature = await signAndSendTransaction({
-      instructions,
-      transactionOptions: { computeUnitLimit: 200_000 }
-    });
 
     setLastTxSignature(signature);
-    await connection.confirmTransaction(signature, 'confirmed');
 
-    alert(
-      `Transfer successful!\n\n` +
-      `Sent: ${amountNum} USDC\n` +
-      `To: ${recipient.slice(0, 8)}...${recipient.slice(-4)}\n\n` +
-      `No gas fees paid!`
-    );
+    // Use utility function for consistent success message
+    alert(createTransferSuccessMessage(amountValidation.amountNum!, recipient, { gasless: true }));
 
-    // Reset form and refresh balance
-    setRecipient('');
-    setAmount('');
+    resetForm();  // Clears recipient and amount
     await fetchBalance();
   } catch (err: unknown) {
     console.error('Transfer error:', err);
-    alert(formatTransactionError(err, 'Transfer'));  // User-friendly error message
+    alert(formatTransactionError(err, 'Transfer'));
   } finally {
-    setSending(false);
+    stopSending();  // Sets sending=false, retryCount=0
   }
 };
 ```
+
+**Key Utility Functions Used:**
+
+| Function | Description |
+|----------|-------------|
+| `validateRecipientAddress()` | Validates Solana address, returns `{ valid, address?, error? }` |
+| `validateTransferAmount()` | Validates amount against balance, returns `{ valid, amountNum?, error? }` |
+| `buildUsdcTransferInstructions()` | Builds transfer instructions with automatic ATA creation |
+| `withRetry()` | Retries failed transactions with exponential backoff |
+| `createTransferSuccessMessage()` | Creates consistent success message with gasless option |
 
 ---
 
@@ -307,34 +307,57 @@ return (
 
 ## Complete Example
 
-The complete implementation includes balance fetching, recipient validation, automatic token account creation, and gasless transfer.
+The complete implementation uses centralized hooks and utility functions for clean, maintainable code.
 
-**Core Functions:**
+**Custom Hooks Used:**
+
+| Hook | Description |
+|------|-------------|
+| `useLazorkitWalletConnect()` | Wallet connection with popup error handling |
+| `useBalances()` | Automatic SOL/USDC balance management |
+| `useTransferForm()` | Transfer form state (recipient, amount, sending, retryCount) |
+
+**Utility Functions:**
 
 | Function | Description |
 |----------|-------------|
-| `handleSend()` | Validates inputs, builds instructions, sends gasless transaction |
-| `fetchBalance()` | Fetches user's USDC balance |
-| `getAssociatedTokenAddressSync()` | Derives token account addresses for sender and recipient |
+| `validateRecipientAddress()` | Validates Solana address format |
+| `validateTransferAmount()` | Validates amount against available balance |
+| `buildUsdcTransferInstructions()` | Builds transfer with automatic ATA creation |
+| `withRetry()` | Retries failed transactions with exponential backoff |
+| `createTransferSuccessMessage()` | Creates consistent success message |
+| `formatTransactionError()` | Formats errors for user-friendly display |
 
-**Key Pattern - Gasless Transfer:**
+**Key Pattern - Gasless Transfer with Validation:**
 
 ```typescript
 const { signAndSendTransaction } = useWallet();
+const { startSending, stopSending, resetForm } = useTransferForm();
 
-// Build transfer instruction
-const transferIx = createTransferInstruction(
-  senderTokenAccount,
-  recipientTokenAccount,
+// Validate inputs using utility functions
+const recipientValidation = validateRecipientAddress(recipient);
+const amountValidation = validateTransferAmount(amount, usdcBalance);
+
+if (!recipientValidation.valid || !amountValidation.valid) {
+  return; // Show error from validation.error
+}
+
+// Build instructions (handles ATA creation automatically)
+const instructions = await buildUsdcTransferInstructions(
+  connection,
   senderPubkey,
-  amount * 1_000_000,  // USDC has 6 decimals
+  recipientValidation.address!,
+  amountValidation.amountNum!
 );
 
-// Send gasless - paymaster covers fees automatically
-const signature = await signAndSendTransaction({
-  instructions: [transferIx],
-  transactionOptions: { computeUnitLimit: 200_000 }
-});
+// Send gasless with retry logic
+const signature = await withRetry(
+  async () => signAndSendTransaction({ instructions }),
+  { maxRetries: 3, onRetry: (attempt) => setRetryCount(attempt) }
+);
+
+// Show success message
+alert(createTransferSuccessMessage(amountValidation.amountNum!, recipient, { gasless: true }));
 ```
 
 > **Source**: See the full implementation at [`page.tsx`](page.tsx)

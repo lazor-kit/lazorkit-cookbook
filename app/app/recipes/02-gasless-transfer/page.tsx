@@ -1,21 +1,32 @@
 'use client';
 
-import { useState } from 'react';
 import { useWallet } from '@lazorkit/wallet';
-import { PublicKey, TransactionInstruction } from '@solana/web3.js';
-import { TOKEN_PROGRAM_ID, createTransferInstruction } from '@solana/spl-token';
+import { PublicKey } from '@solana/web3.js';
 import Link from 'next/link';
 import { useBalances } from '@/hooks/useBalances';
+import { useTransferForm } from '@/hooks/useTransferForm';
 import { useLazorkitWalletConnect } from '@/hooks/useLazorkitWalletConnect';
-import { getAssociatedTokenAddressSync, getConnection, USDC_MINT, formatTransactionError } from '@/lib/solana-utils';
+import {
+  getConnection,
+  formatTransactionError,
+  buildUsdcTransferInstructions,
+  withRetry,
+  validateRecipientAddress,
+  validateTransferAmount,
+  createTransferSuccessMessage,
+} from '@/lib/solana-utils';
 
 export default function Recipe02Page() {
   const { signAndSendTransaction } = useWallet();
   const { wallet, isConnected, connect, connecting } = useLazorkitWalletConnect();
-  const [sending, setSending] = useState(false);
-  const [recipient, setRecipient] = useState('');
-  const [amount, setAmount] = useState('');
-  const [lastTxSignature, setLastTxSignature] = useState('');
+  const {
+    recipient, setRecipient,
+    amount, setAmount,
+    sending,
+    retryCount, setRetryCount,
+    lastTxSignature, setLastTxSignature,
+    resetForm, startSending, stopSending,
+  } = useTransferForm();
 
   const {
     usdcBalance,
@@ -29,88 +40,65 @@ export default function Recipe02Page() {
       return;
     }
 
-    let recipientPubkey: PublicKey;
+    const recipientValidation = validateRecipientAddress(recipient);
+    if (!recipientValidation.valid) {
+      alert(recipientValidation.error);
+      return;
+    }
+
+    const amountValidation = validateTransferAmount(amount, usdcBalance);
+    if (!amountValidation.valid) {
+      alert(amountValidation.error);
+      return;
+    }
+
+    startSending();
+
     try {
-      recipientPubkey = new PublicKey(recipient);
-    } catch (err) {
-      alert('Invalid recipient address');
-      return;
-    }
+      const signature = await withRetry(
+        async () => {
+          const connection = getConnection();
+          const senderPubkey = new PublicKey(wallet.smartWallet);
 
-    const amountNum = parseFloat(amount);
-    if (isNaN(amountNum) || amountNum <= 0) {
-      alert('Invalid amount');
-      return;
-    }
+          // Build transfer instructions using shared utility
+          const instructions = await buildUsdcTransferInstructions(
+            connection,
+            senderPubkey,
+            recipientValidation.address!,
+            amountValidation.amountNum!
+          );
 
-    if (usdcBalance !== null && amountNum > usdcBalance) {
-      alert(`Insufficient balance. You have ${usdcBalance.toFixed(2)} USDC`);
-      return;
-    }
+          console.log('Sending gasless transaction...');
+          const sig = await signAndSendTransaction({
+            instructions,
+            transactionOptions: { computeUnitLimit: 200_000 }
+          });
 
-    setSending(true);
-    try {
-      const connection = getConnection();
-      const senderPubkey = new PublicKey(wallet.smartWallet);
+          console.log('Transaction signature:', sig);
 
-      const senderTokenAccount = getAssociatedTokenAddressSync(USDC_MINT, senderPubkey);
-      const recipientTokenAccount = getAssociatedTokenAddressSync(USDC_MINT, recipientPubkey);
+          await connection.confirmTransaction(sig, 'confirmed');
 
-      const recipientAccountInfo = await connection.getAccountInfo(recipientTokenAccount);
-      const instructions: TransactionInstruction[] = [];
-
-      if (!recipientAccountInfo) {
-        const createAccountIx = new TransactionInstruction({
-          keys: [
-            { pubkey: senderPubkey, isSigner: true, isWritable: true },
-            { pubkey: recipientTokenAccount, isSigner: false, isWritable: true },
-            { pubkey: recipientPubkey, isSigner: false, isWritable: false },
-            { pubkey: USDC_MINT, isSigner: false, isWritable: false },
-            { pubkey: new PublicKey('11111111111111111111111111111111'), isSigner: false, isWritable: false },
-            { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
-          ],
-          programId: new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL'),
-          data: Buffer.from([]),
-        });
-        instructions.push(createAccountIx);
-      }
-
-      const transferIx = createTransferInstruction(
-        senderTokenAccount,
-        recipientTokenAccount,
-        senderPubkey,
-        amountNum * 1_000_000,
-        [],
-        TOKEN_PROGRAM_ID
+          return sig;
+        },
+        {
+          maxRetries: 3,
+          initialDelayMs: 1000,
+          onRetry: (attempt, error) => {
+            console.log(`Retry attempt ${attempt} after error:`, error);
+            setRetryCount(attempt);
+          }
+        }
       );
-      instructions.push(transferIx);
 
-      console.log('📤 Sending gasless transaction...');
-      const signature = await signAndSendTransaction({
-        instructions,
-        transactionOptions: { computeUnitLimit: 200_000 }
-      });
-
-      console.log('✅ Transaction signature:', signature);
       setLastTxSignature(signature);
-
-      await connection.confirmTransaction(signature, 'confirmed');
-
-      alert(
-        `✅ Transfer successful!\n\n` +
-        `Sent: ${amountNum} USDC\n` +
-        `To: ${recipient.slice(0, 8)}...${recipient.slice(-4)}\n\n` +
-        `🎉 No gas fees paid!`
-      );
-
-      setRecipient('');
-      setAmount('');
+      alert(createTransferSuccessMessage(amountValidation.amountNum!, recipient, { gasless: true }));
+      resetForm();
       await fetchBalance();
     } catch (err: unknown) {
-      console.error('❌ Transfer error:', err);
+      console.error('Transfer error:', err);
       alert(formatTransactionError(err, 'Transfer'));
     } finally {
-      setSending(false);
+      stopSending();
     }
   };
 
@@ -350,7 +338,11 @@ const signature = await signAndSendTransaction({
                       disabled={sending || !recipient || !amount || usdcBalance === 0}
                       className="w-full px-6 py-4 bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white rounded-xl font-bold transition-all shadow-lg shadow-green-500/50 disabled:opacity-50 disabled:cursor-not-allowed text-sm md:text-base"
                     >
-                      {sending ? '⏳ Sending...' : '⚡ Send USDC (Gasless!)'}
+                      {sending
+                        ? retryCount > 0
+                          ? `Retrying... (${retryCount}/3)`
+                          : 'Sending...'
+                        : 'Send USDC (Gasless!)'}
                     </button>
                   </div>
 

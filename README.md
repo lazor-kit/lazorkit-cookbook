@@ -38,12 +38,13 @@ This project demonstrates that you can build sophisticated Solana applications (
 
 ## Recipes Overview
 
-| Recipe | Description | Difficulty | Tutorial |
-|--------|-------------|------------|----------|
-| [01: Passkey Wallet Basics](app/app/recipes/01-passkey-wallet-basics) | Create wallets with Face ID, check balances | Beginner | [Read Tutorial](app/app/recipes/01-passkey-wallet-basics/README.md) |
+| Recipe | Description | Difficulty   | Tutorial |
+|--------|-------------|--------------|----------|
+| [01: Passkey Wallet Basics](app/app/recipes/01-passkey-wallet-basics) | Create wallets with Face ID, check balances | Beginner     | [Read Tutorial](app/app/recipes/01-passkey-wallet-basics/README.md) |
 | [02: Gasless USDC Transfer](app/app/recipes/02-gasless-transfer) | Send tokens without paying gas fees | Intermediate | [Read Tutorial](app/app/recipes/02-gasless-transfer/README.md) |
-| [03: Subscription Service](app/app/recipes/03-subscription-service) | Automated recurring USDC payments on Solana | Advanced | [Read Tutorial](app/app/recipes/03-subscription-service/README.md) |
-| [04: Gasless Raydium Swap](app/app/recipes/04-gasless-raydium-swap) | DEX token swaps without gas fees | Advanced | [Read Tutorial](app/app/recipes/04-gasless-raydium-swap/README.md) |
+| [03: Subscription Service](app/app/recipes/03-subscription-service) | Automated recurring USDC payments on Solana | Advanced     | [Read Tutorial](app/app/recipes/03-subscription-service/README.md) |
+| [04: Gasless Raydium Swap](app/app/recipes/04-gasless-raydium-swap) | DEX token swaps without gas fees | Advanced     | [Read Tutorial](app/app/recipes/04-gasless-raydium-swap/README.md) |
+| [05: Wallet Adapter Integration](app/app/recipes/05-wallet-adapter-integration) | Use LazorKit with Anza, ConnectorKit, Wallet-UI | Advanced     | [Read Tutorial](app/app/recipes/05-wallet-adapter-integration/README.md) |
 
 **Anchor Program**: Custom smart contract powering the subscription service. [Read Documentation](program/subscription-program/README.md)
 
@@ -69,6 +70,11 @@ cd app
 
 # Install dependencies
 npm install
+
+# NOTE: This cookbook demonstrates multiple wallet adapters that may use
+# different versions of @solana/web3.js. If you encounter peer dependency
+# conflicts, use:
+npm install --legacy-peer-deps
 
 # Set up environment variables
 cp env.example .env.local
@@ -122,9 +128,15 @@ lazorkit-cookbook/
 │   │   │   │   ├── subscribe/page.tsx      # Plan selection & subscribe
 │   │   │   │   ├── dashboard/page.tsx      # Manage subscription
 │   │   │   │   └── README.md               # 📖 Tutorial: Subscription Service
-│   │   │   └── 04-gasless-raydium-swap/    # Recipe 04 (has README.md tutorial)
-│   │   │       ├── page.tsx                # DEX swap interface
-│   │   │       └── README.md               # 📖 Tutorial: Gasless Raydium Swap
+│   │   │   ├── 04-gasless-raydium-swap/    # Recipe 04 (has README.md tutorial)
+│   │   │   │   ├── page.tsx                # DEX swap interface
+│   │   │   │   └── README.md               # 📖 Tutorial: Gasless Raydium Swap
+│   │   │   └── 05-wallet-adapter-integration/  # Recipe 05 (has README.md tutorial)
+│   │   │       ├── page.tsx                # Adapter selection page
+│   │   │       ├── anza-adapter/page.tsx   # Anza Wallet Adapter demo
+│   │   │       ├── connectorkit/page.tsx   # ConnectorKit demo
+│   │   │       ├── wallet-ui/page.tsx      # Wallet-UI demo
+│   │   │       └── README.md               # 📖 Tutorial: Wallet Adapter Integration
 │   │   ├── api/
 │   │   │   └── charge-subscriptions/       # Backend recurring charge job
 │   │   │       └── route.ts
@@ -135,7 +147,8 @@ lazorkit-cookbook/
 │   │   └── Footer.tsx                      # Links and attribution
 │   ├── hooks/
 │   │   ├── useBalances.ts                  # SOL/USDC balance fetching hook
-│   │   └── useLazorkitWalletConnect.ts      # Wallet connection with error handling
+│   │   ├── useTransferForm.ts              # Transfer form state management
+│   │   └── useLazorkitWalletConnect.ts     # Wallet connection with error handling
 │   ├── lib/
 │   │   ├── constants.ts                    # Subscription plans & config
 │   │   ├── solana-utils.ts                 # Shared Solana utilities
@@ -163,6 +176,7 @@ lazorkit-cookbook/
 | [Recipe 02 Tutorial](app/app/recipes/02-gasless-transfer/README.md) | Gasless USDC transfers with paymaster |
 | [Recipe 03 Tutorial](app/app/recipes/03-subscription-service/README.md) | Subscription billing system |
 | [Recipe 04 Tutorial](app/app/recipes/04-gasless-raydium-swap/README.md) | Gasless DEX swaps with Raydium |
+| [Recipe 05 Tutorial](app/app/recipes/05-wallet-adapter-integration/README.md) | Wallet adapter integration |
 | [Anchor Program Docs](program/subscription-program/README.md) | Smart contract implementation |
 
 ---
@@ -268,12 +282,13 @@ export function LazorkitProvider({ children }) {
 
 ## Learning Path
 
-| If you are... | Start with... |
-|---------------|---------------|
-| New to Solana | [Recipe 01: Passkey Wallet Basics](app/app/recipes/01-passkey-wallet-basics/README.md) - Understand wallet basics |
-| Familiar with Solana | [Recipe 02: Gasless USDC Transfer](app/app/recipes/02-gasless-transfer/README.md) - See how LazorKit simplifies your code |
-| DeFi enthusiast | [Recipe 04: Gasless Raydium Swap](app/app/recipes/04-gasless-raydium-swap/README.md) - DEX swaps without gas fees |
-| Advanced developer | [Recipe 03: Subscription Service](app/app/recipes/03-subscription-service/README.md) - Build complex on-chain programs |
+| If you are... | Start with...                                                                                                                                                                     |
+|---------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| New to Solana | [Recipe 01: Passkey Wallet Basics](app/app/recipes/01-passkey-wallet-basics/README.md) - Understand wallet basics                                                                 |
+| Familiar with Solana | [Recipe 02: Gasless USDC Transfer](app/app/recipes/02-gasless-transfer/README.md) - See how LazorKit simplifies your code                                                         |
+| Using existing wallets | [Recipe 05: Wallet Adapter Integration](app/app/recipes/05-wallet-adapter-integration/README.md) - Integrate LazorKit with Wallet Adapter to make it work alongside other wallets |
+| DeFi enthusiast | [Recipe 04: Gasless Raydium Swap](app/app/recipes/04-gasless-raydium-swap/README.md) - DEX swaps without gas fees                                                                 |
+| Advanced developer | [Recipe 03: Subscription Service](app/app/recipes/03-subscription-service/README.md) - Build complex on-chain programs                                                            |
 
 **Smart Contract Developer?** Check out the [Anchor Program Documentation](program/subscription-program/README.md) for the Rust implementation.
 
@@ -298,6 +313,7 @@ Visit the deployed cookbook: **[https://lazorkit-cookbook.vercel.app/](https://l
 - [Recipe 02: Gasless USDC Transfer](app/app/recipes/02-gasless-transfer/README.md)
 - [Recipe 03: Subscription Service](app/app/recipes/03-subscription-service/README.md)
 - [Recipe 04: Gasless Raydium Swap](app/app/recipes/04-gasless-raydium-swap/README.md)
+- [Recipe 05: Wallet Adapter Integration](app/app/recipes/05-wallet-adapter-integration/README.md)
 - [Anchor Program Documentation](program/subscription-program/README.md)
 
 ### External Documentation
@@ -313,11 +329,12 @@ Visit the deployed cookbook: **[https://lazorkit-cookbook.vercel.app/](https://l
 This cookbook was created for the [**Superteam x LazorKit Bounty**](https://earn.superteam.fun/listing/integrate-passkey-technology-with-lazorkit-to-10x-solana-ux).
 
 **Deliverables:**
-- Working example repository with 4 recipes
+- Working example repository with 5 recipes
 - Step-by-step tutorials for each recipe
 - Live demo deployed on Solana Devnet
 - Custom Anchor program for subscription billing
 - Raydium DEX integration for gasless token swaps
+- Wallet adapter integration examples (Anza, ConnectorKit, Wallet-UI)
 
 ---
 
