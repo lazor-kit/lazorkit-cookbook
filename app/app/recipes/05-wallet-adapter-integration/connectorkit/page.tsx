@@ -214,6 +214,21 @@ function TransferForm() {
                     </div>
                 </div>
             </div>
+
+            {/* Last Transaction */}
+            {lastTxSignature && (
+                <div className="bg-white/5 border border-white/10 rounded-lg p-4">
+                    <p className="text-xs text-gray-400 mb-2">Last Transaction:</p>
+                    <a
+                        href={`https://explorer.solana.com/tx/${lastTxSignature}?cluster=devnet`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-purple-400 hover:text-purple-300 break-all"
+                    >
+                        {lastTxSignature.slice(0, 20)}...{lastTxSignature.slice(-20)} ↗
+                    </a>
+                </div>
+            )}
         </div>
     );
 }
