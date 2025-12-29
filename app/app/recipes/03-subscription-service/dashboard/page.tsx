@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useWallet } from '@lazorkit/wallet';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { PublicKey } from '@solana/web3.js';
@@ -33,8 +32,7 @@ interface SubscriptionData {
 }
 
 export default function DashboardPage() {
-    const { signAndSendTransaction } = useWallet();
-    const { isConnected, wallet, connect, connecting } = useLazorkitWalletConnect();
+    const { isConnected, wallet, connect, connecting, signAndSendTransaction } = useLazorkitWalletConnect();
     const router = useRouter();
     const [hasSubscription, setHasSubscription] = useState(false);
     const [loading, setLoading] = useState(true);

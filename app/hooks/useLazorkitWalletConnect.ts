@@ -9,7 +9,7 @@ interface UseLazorkitWalletConnectOptions {
 }
 
 export function useLazorkitWalletConnect(options: UseLazorkitWalletConnectOptions = {}) {
-    const { connect, disconnect, wallet, isConnected } = useWallet();
+    const { connect, disconnect, wallet, isConnected, signAndSendTransaction } = useWallet();
     const [connecting, setConnecting] = useState(false);
 
     const handleConnect = useCallback(async () => {
@@ -42,5 +42,6 @@ export function useLazorkitWalletConnect(options: UseLazorkitWalletConnectOption
         connecting,
         isConnected,
         wallet,
+        signAndSendTransaction,
     };
 }

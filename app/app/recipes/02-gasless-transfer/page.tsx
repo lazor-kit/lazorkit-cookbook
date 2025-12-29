@@ -1,6 +1,5 @@
 'use client';
 
-import { useWallet } from '@lazorkit/wallet';
 import { PublicKey } from '@solana/web3.js';
 import Link from 'next/link';
 import { useBalances } from '@/hooks/useBalances';
@@ -17,8 +16,7 @@ import {
 } from '@/lib/solana-utils';
 
 export default function Recipe02Page() {
-  const { signAndSendTransaction } = useWallet();
-  const { wallet, isConnected, connect, connecting } = useLazorkitWalletConnect();
+  const { wallet, isConnected, connect, connecting, signAndSendTransaction } = useLazorkitWalletConnect();
   const {
     recipient, setRecipient,
     amount, setAmount,

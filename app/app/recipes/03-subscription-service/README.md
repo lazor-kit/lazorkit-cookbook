@@ -180,13 +180,11 @@ The subscribe page displays available plans and handles the subscription creatio
 **Key Pattern - Creating a Subscription:**
 
 ```typescript
-import { useWallet } from '@lazorkit/wallet';
 import { useLazorkitWalletConnect } from '@/hooks/useLazorkitWalletConnect';
 import { getConnection } from '@/lib/solana-utils';
 
 export default function SubscribePage() {
-  const { signAndSendTransaction } = useWallet();
-  const { wallet, isConnected, connect, connecting } = useLazorkitWalletConnect();
+  const { wallet, isConnected, connect, connecting, signAndSendTransaction } = useLazorkitWalletConnect();
 
   const handleSubscribe = async (plan: PlanFeatures) => {
     const connection = getConnection();

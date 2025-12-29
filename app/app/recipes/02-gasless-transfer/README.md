@@ -66,7 +66,6 @@ npm install @lazorkit/wallet @solana/web3.js @solana/spl-token
 ```typescript
 'use client';
 
-import { useWallet } from '@lazorkit/wallet';
 import { PublicKey } from '@solana/web3.js';
 import { useLazorkitWalletConnect } from '@/hooks/useLazorkitWalletConnect';
 import { useBalances } from '@/hooks/useBalances';
@@ -90,8 +89,7 @@ Use the centralized hooks for wallet connection, balance management, and transfe
 
 ```typescript
 export default function Recipe02Page() {
-  const { signAndSendTransaction } = useWallet();
-  const { wallet, isConnected, connect, connecting } = useLazorkitWalletConnect();
+  const { wallet, isConnected, connect, connecting, signAndSendTransaction } = useLazorkitWalletConnect();
 
   // Transfer form state management
   const {
@@ -331,7 +329,7 @@ The complete implementation uses centralized hooks and utility functions for cle
 **Key Pattern - Gasless Transfer with Validation:**
 
 ```typescript
-const { signAndSendTransaction } = useWallet();
+const { signAndSendTransaction } = useLazorkitWalletConnect();
 const { startSending, stopSending, resetForm } = useTransferForm();
 
 // Validate inputs using utility functions

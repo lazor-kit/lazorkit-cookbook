@@ -63,7 +63,6 @@ This advanced recipe demonstrates how to integrate an existing DeFi protocol (Ra
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useWallet } from '@lazorkit/wallet';
 import { PublicKey, Transaction } from '@solana/web3.js';
 import axios from "axios";
 import { DEV_API_URLS } from '@raydium-io/raydium-sdk-v2';
@@ -80,8 +79,7 @@ Use the centralized hooks for wallet connection and balance management:
 
 ```typescript
 export default function Recipe04() {
-  const { signAndSendTransaction } = useWallet();
-  const { isConnected, wallet, connect, connecting } = useLazorkitWalletConnect();
+  const { isConnected, wallet, connect, connecting, signAndSendTransaction } = useLazorkitWalletConnect();
   const [inputToken, setInputToken] = useState<'SOL' | 'USDC'>('SOL');
   const [outputToken, setOutputToken] = useState<'SOL' | 'USDC'>('USDC');
   const [inputAmount, setInputAmount] = useState('');

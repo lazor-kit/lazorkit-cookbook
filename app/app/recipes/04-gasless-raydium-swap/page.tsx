@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useWallet } from '@lazorkit/wallet';
 import {
     PublicKey,
     Transaction
@@ -48,8 +47,7 @@ interface SwapCompute {
 }
 
 export default function Recipe04() {
-    const { signAndSendTransaction } = useWallet();
-    const { isConnected, wallet, connect, connecting } = useLazorkitWalletConnect();
+    const { isConnected, wallet, connect, connecting, signAndSendTransaction } = useLazorkitWalletConnect();
     const [inputToken, setInputToken] = useState<'SOL' | 'USDC'>('SOL');
     const [outputToken, setOutputToken] = useState<'SOL' | 'USDC'>('USDC');
     const [inputAmount, setInputAmount] = useState('');
@@ -222,6 +220,8 @@ export default function Recipe04() {
                 errorMessage = 'No liquidity pool found on Devnet.';
             } else if (errorMessage.includes('transaction too large') || errorMessage.includes('Transaction too large')) {
                 errorMessage = 'Transaction too large. Try a simpler swap with fewer routing hops.';
+            } else if (errorMessage.includes('SBF program panicked') || errorMessage.includes('Option::unwrap()') || errorMessage.includes('Program failed to complete')) {
+                errorMessage = `Devnet pool error for ${inputToken}→${outputToken}. The pool may be imbalanced or have insufficient liquidity in this direction. Try swapping ${outputToken}→${inputToken} instead, or try a smaller amount.`;
             }
 
             alert(`Swap failed: ${errorMessage}`);
@@ -272,12 +272,14 @@ export default function Recipe04() {
                             </h3>
                             <div className="text-sm text-yellow-100 space-y-2">
                                 <p>
-                                    Currently supporting <strong>SOL ↔ USDC</strong> pair on Devnet as the primary goal is to showcase the integration
-                                    without dealing with liquidity issues. This recipe demonstrates how to integrate
-                                    Raydium Protocol with LazorKit's gasless transactions.
+                                    Currently supporting <strong>SOL ↔ USDC</strong> pair on Devnet. Devnet liquidity pools can be
+                                    unreliable - some swap directions may fail due to imbalanced pools or missing pool state.
                                 </p>
                                 <p className="mt-2">
-                                    💡 The same code can be used on Mainnet by adding a comprehensive token list via token-list APIs.
+                                    <strong>Note:</strong> If USDC→SOL fails, try SOL→USDC instead. This is a devnet pool limitation, not a code issue.
+                                </p>
+                                <p className="mt-2">
+                                    💡 The same code works reliably on Mainnet where pools are properly maintained.
                                 </p>
                             </div>
                         </div>
