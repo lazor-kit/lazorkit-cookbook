@@ -492,15 +492,15 @@ const signature = await signAndSendTransaction({
                                     {/* Links */}
                                     <div className="space-y-2">
                                         <a
-                                            href={`https://explorer.solana.com/address/${mintedNft.mintAddress}?cluster=devnet`}
+                                            href={`https://orbmarkets.io/address/${mintedNft.mintAddress}?network=devnet&cluster=devnet`}
                                             target="_blank"
                                             rel="noopener noreferrer"
                                             className="block w-full text-center bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 py-2 px-4 rounded-lg text-sm transition-colors"
                                         >
-                                            View NFT on Explorer →
+                                            View NFT on Orb Explorer →
                                         </a>
                                         <a
-                                            href={`https://explorer.solana.com/tx/${mintedNft.signature}?cluster=devnet`}
+                                            href={`https://orbmarkets.io/tx/${mintedNft.signature}?advanced=true&tab=summary&cluster=devnet&network=devnet`}
                                             target="_blank"
                                             rel="noopener noreferrer"
                                             className="block w-full text-center bg-white/5 hover:bg-white/10 text-gray-300 py-2 px-4 rounded-lg text-sm transition-colors"
