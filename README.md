@@ -46,6 +46,7 @@ This project demonstrates that you can build sophisticated Solana applications (
 | [04: Gasless Raydium Swap](app/app/recipes/04-gasless-raydium-swap) | DEX token swaps without gas fees | Advanced     | [Read Tutorial](app/app/recipes/04-gasless-raydium-swap/README.md) |
 | [05: Wallet Adapter Integration](app/app/recipes/05-wallet-adapter-integration) | Use LazorKit with Anza, ConnectorKit, Wallet-UI | Advanced     | [Read Tutorial](app/app/recipes/05-wallet-adapter-integration/README.md) |
 | [06: Regular Metaplex NFT](app/app/recipes/06-nft-minting) | Mint standard NFTs with Metaplex Token Metadata | Intermediate | [Read Tutorial](app/app/recipes/06-nft-minting/README.md) |
+| [07: Gasless cNFT Minting](app/app/recipes/07-compressed-nft-minting) | Mint compressed NFTs with Bubblegum (truly gasless!) | Advanced     | [Read Tutorial](app/app/recipes/07-compressed-nft-minting/README.md) |
 
 **Anchor Program**: Custom smart contract powering the subscription service. [Read Documentation](program/subscription-program/README.md)
 
@@ -141,6 +142,9 @@ lazorkit-cookbook/
 │   │   │   ├── 06-nft-minting/             # Recipe 06 (has README.md tutorial)
 │   │   │   │   ├── page.tsx                # Regular NFT minting interface
 │   │   │   │   └── README.md               # 📖 Tutorial: Regular Metaplex NFT
+│   │   │   └── 07-compressed-nft-minting/  # Recipe 07 (has README.md tutorial)
+│   │   │       ├── page.tsx                # Compressed NFT minting interface
+│   │   │       └── README.md               # 📖 Tutorial: Gasless cNFT Minting
 │   │   ├── api/
 │   │   │   └── charge-subscriptions/       # Backend recurring charge job
 │   │   │       └── route.ts
@@ -182,6 +186,7 @@ lazorkit-cookbook/
 | [Recipe 04 Tutorial](app/app/recipes/04-gasless-raydium-swap/README.md) | Gasless DEX swaps with Raydium |
 | [Recipe 05 Tutorial](app/app/recipes/05-wallet-adapter-integration/README.md) | Wallet adapter integration |
 | [Recipe 06 Tutorial](app/app/recipes/06-nft-minting/README.md) | Regular Metaplex NFT minting |
+| [Recipe 07 Tutorial](app/app/recipes/07-compressed-nft-minting/README.md) | Gasless cNFT minting with Bubblegum |
 | [Anchor Program Docs](program/subscription-program/README.md) | Smart contract implementation |
 
 ---
@@ -293,6 +298,7 @@ export function LazorkitProvider({ children }) {
 | Familiar with Solana | [Recipe 02: Gasless USDC Transfer](app/app/recipes/02-gasless-transfer/README.md) - See how LazorKit simplifies your code                                                         |
 | Using existing wallets | [Recipe 05: Wallet Adapter Integration](app/app/recipes/05-wallet-adapter-integration/README.md) - Integrate LazorKit with Wallet Adapter to make it work alongside other wallets |
 | DeFi enthusiast | [Recipe 04: Gasless Raydium Swap](app/app/recipes/04-gasless-raydium-swap/README.md) - DEX swaps without gas fees                                                                 |
+| NFT developer | [Recipe 06](app/app/recipes/06-nft-minting/README.md) & [Recipe 07](app/app/recipes/07-compressed-nft-minting/README.md) - Regular and compressed NFT minting                     |
 | Advanced developer | [Recipe 03: Subscription Service](app/app/recipes/03-subscription-service/README.md) - Build complex on-chain programs                                                            |
 
 **Smart Contract Developer?** Check out the [Anchor Program Documentation](program/subscription-program/README.md) for the Rust implementation.
@@ -320,6 +326,7 @@ Visit the deployed cookbook: **[https://lazorkit-cookbook.vercel.app/](https://l
 - [Recipe 04: Gasless Raydium Swap](app/app/recipes/04-gasless-raydium-swap/README.md)
 - [Recipe 05: Wallet Adapter Integration](app/app/recipes/05-wallet-adapter-integration/README.md)
 - [Recipe 06: Regular Metaplex NFT](app/app/recipes/06-nft-minting/README.md)
+- [Recipe 07: Gasless cNFT Minting](app/app/recipes/07-compressed-nft-minting/README.md)
 - [Anchor Program Documentation](program/subscription-program/README.md)
 
 ### External Documentation
@@ -335,13 +342,13 @@ Visit the deployed cookbook: **[https://lazorkit-cookbook.vercel.app/](https://l
 This cookbook was created for the [**Superteam x LazorKit Bounty**](https://earn.superteam.fun/listing/integrate-passkey-technology-with-lazorkit-to-10x-solana-ux).
 
 **Deliverables:**
-- Working example repository with 6 recipes
+- Working example repository with 7 recipes
 - Step-by-step tutorials for each recipe
 - Live demo deployed on Solana Devnet
 - Custom Anchor program for subscription billing
 - Raydium DEX integration for gasless token swaps
 - Wallet adapter integration examples (Anza, ConnectorKit, Wallet-UI)
-- NFT minting with Metaplex (regular)
+- NFT minting with Metaplex (regular and compressed)
 
 ---
 

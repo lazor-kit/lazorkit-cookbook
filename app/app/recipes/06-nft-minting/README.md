@@ -265,6 +265,19 @@ const web3Ix = toWeb3JsInstruction(umiIx);
 
 ### 3. Rent Costs
 **Problem**: LazorKit paymaster covers gas fees but NOT account rent (~0.02 SOL).
+**Solution**: User needs SOL in wallet, or use [Recipe 07](../07-compressed-nft-minting/README.md) for truly gasless cNFT minting.
+
+---
+
+## Key Differences from cNFT (Recipe 07)
+
+| Aspect | Regular NFT (Recipe 06) | Compressed NFT (Recipe 07) |
+|--------|-------------------------|---------------------------|
+| Cost | ~0.02 SOL rent | Gas sponsored by paymaster |
+| Accounts | 4 accounts created | 0 accounts created |
+| Instructions | 6 instructions | 1 instruction |
+| Viewing | Standard explorers | DAS API / Orb Explorer |
+| Use Case | High-value collectibles | Mass distribution |
 
 ---
 
@@ -296,4 +309,5 @@ Try this recipe live at: [https://lazorkit-cookbook.vercel.app/recipes/06-nft-mi
 
 ## Next Steps
 
+- Explore [Recipe 07: Gasless cNFT Minting](../07-compressed-nft-minting/README.md) for truly gasless NFT minting
 - Build your own NFT marketplace with LazorKit!

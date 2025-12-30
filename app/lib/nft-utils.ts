@@ -7,13 +7,16 @@ import {
     findMetadataPda,
     findMasterEditionPda,
 } from '@metaplex-foundation/mpl-token-metadata';
+import { mplBubblegum, mintV1 } from '@metaplex-foundation/mpl-bubblegum';
 import {
     publicKey as umiPublicKey,
     signerIdentity,
     Signer,
+    none,
+    PublicKey as UmiPublicKey,
 } from '@metaplex-foundation/umi';
 import { toWeb3JsInstruction } from '@metaplex-foundation/umi-web3js-adapters';
-import { RPC_URL } from './solana-utils';
+import { getConnection, RPC_URL } from './solana-utils';
 
 // ============================================================================
 // Constants
@@ -26,6 +29,14 @@ export const NFT_DESCRIPTION_MAX_LENGTH = 200;
 export const REGULAR_NFT_SYMBOL = 'LKCB';
 export const REGULAR_NFT_IMAGE_PATH = '/LKCB_R_NFT.png';
 
+// Compressed NFT constants
+export const CNFT_SYMBOL = 'cLKCB';
+export const CNFT_IMAGE_PATH = '/LKCB_C_NFT.png';
+
+// Pre-created merkle tree on devnet for cNFT demo
+// Tree config: maxDepth=14 (16,384 NFTs), maxBufferSize=64, public=true
+export const DEMO_MERKLE_TREE = 'HiTxt5DJMYSpwZ7i3Kx5qzYsuAfEWMZMnyGCNokC7Y2u';
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -37,6 +48,14 @@ export interface NftMetadata {
 
 export interface MintedRegularNft {
     mintAddress: string;
+    name: string;
+    description: string;
+    signature: string;
+}
+
+export interface MintedCNft {
+    assetId: string;
+    treeAddress: string;
     name: string;
     description: string;
     signature: string;
@@ -188,6 +207,85 @@ export async function buildMetaplexInstructions(
     }
 
     return instructions;
+}
+
+// ============================================================================
+// Compressed NFT (Metaplex Bubblegum)
+// ============================================================================
+
+/**
+ * Build Bubblegum mint instruction for a compressed NFT
+ */
+export function buildCNftMintInstruction(
+    walletAddress: string,
+    merkleTreeAddress: string,
+    nftName: string,
+    metadataUri: string,
+    symbol: string = CNFT_SYMBOL
+): TransactionInstruction[] {
+    const umi = createUmi(RPC_URL).use(mplBubblegum());
+    const dummySigner = createDummySigner(walletAddress);
+
+    umi.use(signerIdentity(dummySigner));
+
+    const mintBuilder = mintV1(umi, {
+        leafOwner: umiPublicKey(walletAddress),
+        merkleTree: umiPublicKey(merkleTreeAddress),
+        metadata: {
+            name: nftName,
+            symbol,
+            uri: metadataUri,
+            sellerFeeBasisPoints: 0,
+            collection: none(),
+            creators: [
+                {
+                    address: umiPublicKey(walletAddress),
+                    verified: false,
+                    share: 100,
+                },
+            ],
+        },
+    });
+
+    const mintIxs = mintBuilder.getInstructions();
+    const instructions: TransactionInstruction[] = [];
+
+    for (const ix of mintIxs) {
+        instructions.push(toWeb3JsInstruction(ix));
+    }
+
+    return instructions;
+}
+
+/**
+ * Extract Asset ID from transaction logs
+ * The Bubblegum program logs: "Leaf asset ID: <asset_id>"
+ */
+export async function extractCNftAssetId(signature: string): Promise<string> {
+    const connection = getConnection();
+
+    // Wait for transaction to be confirmed and logs available
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    try {
+        const tx = await connection.getTransaction(signature, {
+            commitment: 'confirmed',
+            maxSupportedTransactionVersion: 0,
+        });
+
+        if (tx?.meta?.logMessages) {
+            for (const log of tx.meta.logMessages) {
+                const match = log.match(/Leaf asset ID: ([1-9A-HJ-NP-Za-km-z]{32,44})/);
+                if (match) {
+                    return match[1];
+                }
+            }
+        }
+    } catch (err) {
+        console.error('Failed to extract asset ID:', err);
+    }
+
+    return 'Unknown (check transaction logs)';
 }
 
 // ============================================================================

@@ -249,6 +249,44 @@ export default function HomePage() {
                             </div>
                         </div>
                     </Link>
+
+                    {/* Recipe 07 */}
+                    <Link href="/recipes/07-compressed-nft-minting">
+                        <div
+                            className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-2xl p-8 hover:bg-white/10 transition-all cursor-pointer group">
+                            <div className="text-5xl mb-4">🌳</div>
+                            <div className="flex items-center gap-2 mb-3">
+                                <span className="text-2xl font-bold text-white">Recipe 07</span>
+                                <span
+                                    className="px-2 py-1 rounded-full bg-green-500/20 text-green-400 text-xs font-semibold">
+                                    ⭐⭐⭐ Advanced
+                                </span>
+                            </div>
+                            <h3 className="text-xl font-semibold text-white mb-3">
+                                Gasless cNFT Minting (Metaplex Bubblegum)
+                            </h3>
+                            <p className="text-gray-400 mb-4">
+                                Mint compressed NFTs using Metaplex Bubblegum - truly gasless!
+                            </p>
+                            <ul className="space-y-2 text-sm text-gray-300">
+                                <li className="flex items-center gap-2">
+                                    <span className="text-green-400">✓</span>
+                                    Bubblegum integration
+                                </li>
+                                <li className="flex items-center gap-2">
+                                    <span className="text-green-400">✓</span>
+                                    Merkle tree compression
+                                </li>
+                                <li className="flex items-center gap-2">
+                                    <span className="text-green-400">✓</span>
+                                    Zero rent costs
+                                </li>
+                            </ul>
+                            <div className="mt-6 text-purple-400 group-hover:text-purple-300 font-semibold">
+                                Start learning →
+                            </div>
+                        </div>
+                    </Link>
                 </div>
                 {/* Why LazorKit Section */}
                 <section className="container mx-auto px-4 py-16 max-w-7xl">

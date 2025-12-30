@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 
 // NFT Constants
 const REGULAR_NFT_SYMBOL = 'LKCB';
+const CNFT_SYMBOL = 'cLKCB';
 const REGULAR_NFT_IMAGE_PATH = '/LKCB_R_NFT.png';
+const CNFT_IMAGE_PATH = '/LKCB_C_NFT.png';
 
 // In-memory store for NFT metadata (demo purposes)
 // On restart, fallback metadata is returned - name/symbol are on-chain anyway
@@ -45,8 +47,9 @@ export async function GET(
     const stored = metadataStore.get(mint);
 
     // Determine NFT type based on mint ID prefix
-    const imagePath = REGULAR_NFT_IMAGE_PATH;
-    const symbol = REGULAR_NFT_SYMBOL;
+    const isCompressed = mint.startsWith('cnft');
+    const imagePath = isCompressed ? CNFT_IMAGE_PATH : REGULAR_NFT_IMAGE_PATH;
+    const symbol = isCompressed ? CNFT_SYMBOL : REGULAR_NFT_SYMBOL;
     const imageUrl = `${baseUrl}${imagePath}`;
 
     // Build metadata - use stored values or fallback
